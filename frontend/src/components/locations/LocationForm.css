@@ -1,0 +1,9 @@
+/* # frontend/src/components/locations/LocationForm.css */
+.location-form-container {
+    background-color: white;
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    max-width: 800px;
+    margin: 0 auto;
+  }

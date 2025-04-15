@@ -1,0 +1,485 @@
+// # backend/src/controllers/jobs.js
+const Job = require('../models/Job');
+const Location = require('../models/Location');
+const asyncHandler = require('../middleware/async');
+const ErrorResponse = require('../utils/errorResponse');
+const XLSX = require('xlsx');
+
+/**
+ * @desc    Get all jobs
+ * @route   GET /api/jobs
+ * @access  Private
+ */
+exports.getJobs = asyncHandler(async (req, res, next) => {
+  // Add filters, pagination, etc if needed
+  const jobs = await Job.find({ user: req.user.id })
+    .populate('location', 'name address')
+    .sort('-date');
+  
+  res.status(200).json({
+    success: true,
+    count: jobs.length,
+    data: jobs
+  });
+});
+
+/**
+ * @desc    Get single job
+ * @route   GET /api/jobs/:id
+ * @access  Private
+ */
+exports.getJob = asyncHandler(async (req, res, next) => {
+  const job = await Job.findById(req.params.id).populate('location', 'name address coordinates photos');
+  
+  if (!job) {
+    return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the job
+  if (job.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to access this job`, 401));
+  }
+  
+  res.status(200).json({
+    success: true,
+    data: job
+  });
+});
+
+/**
+ * @desc    Create new job
+ * @route   POST /api/jobs
+ * @access  Private
+ */
+exports.createJob = asyncHandler(async (req, res, next) => {
+    // Add user to req.body
+    req.body.user = req.user.id;
+    
+    // Validate location exists and belongs to user
+    const location = await Location.findById(req.body.location);
+    
+    if (!location) {
+      return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
+    }
+    
+    if (location.user.toString() !== req.user.id) {
+      return next(new ErrorResponse(`User not authorized to use this location`, 401));
+    }
+    
+    // Calculate duration if not provided but start and end times are available
+    if (!req.body.duration && req.body.startTime && req.body.endTime) {
+      const startTime = new Date(req.body.startTime);
+      const endTime = new Date(req.body.endTime);
+      req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+    }
+    
+    const job = await Job.create(req.body);
+    
+    res.status(201).json({
+      success: true,
+      data: job
+    });
+  });
+  
+  /**
+   * @desc    Update job
+   * @route   PUT /api/jobs/:id
+   * @access  Private
+   */
+  exports.updateJob = asyncHandler(async (req, res, next) => {
+    let job = await Job.findById(req.params.id);
+    
+    if (!job) {
+      return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+    }
+    
+    // Check user owns the job
+    if (job.user.toString() !== req.user.id) {
+      return next(new ErrorResponse(`User not authorized to update this job`, 401));
+    }
+    
+    // If location is being updated, validate it
+    if (req.body.location && req.body.location !== job.location.toString()) {
+      const location = await Location.findById(req.body.location);
+      
+      if (!location) {
+        return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
+      }
+      
+      if (location.user.toString() !== req.user.id) {
+        return next(new ErrorResponse(`User not authorized to use this location`, 401));
+      }
+    }
+    
+    // Calculate duration if not provided but start and end times were updated
+    if (!req.body.duration && req.body.startTime && req.body.endTime) {
+      const startTime = new Date(req.body.startTime);
+      const endTime = new Date(req.body.endTime);
+      req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+    }
+    
+    job = await Job.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+    }).populate('location', 'name address');
+    
+    res.status(200).json({
+      success: true,
+      data: job
+    });
+  });
+
+/**
+ * @desc    Delete job
+ * @route   DELETE /api/jobs/:id
+ * @access  Private
+ */
+exports.deleteJob = asyncHandler(async (req, res, next) => {
+  const job = await Job.findById(req.params.id);
+  
+  if (!job) {
+    return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the job
+  if (job.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to delete this job`, 401));
+  }
+  
+  // Using findByIdAndDelete instead of remove() which is deprecated
+  await Job.findByIdAndDelete(req.params.id);
+  
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+});
+
+/**
+ * @desc    Get jobs by location
+ * @route   GET /api/jobs/location/:locationId
+ * @access  Private
+ */
+exports.getJobsByLocation = asyncHandler(async (req, res, next) => {
+  const location = await Location.findById(req.params.locationId);
+  
+  if (!location) {
+    return next(new ErrorResponse(`Location not found with id of ${req.params.locationId}`, 404));
+  }
+  
+  // Check user owns the location
+  if (location.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to access this location`, 401));
+  }
+  
+  const jobs = await Job.find({
+    user: req.user.id,
+    location: req.params.locationId
+  }).sort('-date');
+  
+  res.status(200).json({
+    success: true,
+    count: jobs.length,
+    data: jobs
+  });
+});
+
+const mongoose = require('mongoose');
+
+/**
+ * @desc    Get job statistics
+ * @route   GET /api/jobs/statistics
+ * @access  Private
+ */
+exports.getJobStatistics = asyncHandler(async (req, res, next) => {
+  // Convert the user id string to a Mongoose ObjectId using the new keyword
+  const userId = new mongoose.Types.ObjectId(req.user.id);
+
+  // Get total jobs
+  const totalJobs = await Job.countDocuments({ user: userId });
+  
+  // Get total hours
+  const totalHoursResult = await Job.aggregate([
+    { $match: { user: userId } },
+    { $group: { _id: null, totalMinutes: { $sum: '$duration' } } }
+  ]);
+  
+  const totalHours =
+    totalHoursResult.length > 0 && totalHoursResult[0].totalMinutes
+      ? totalHoursResult[0].totalMinutes / 60
+      : 0;
+  
+  // Get all jobs
+  const allJobs = await Job.find({ user: userId }).select('date').lean();
+
+  // Manually count unique dates using a Map to collect jobs by date
+  const dateMap = new Map();
+  const nzOffset = 12; // NZ is approximately UTC+12 (or +13 during daylight savings)
+
+  allJobs.forEach(job => {
+    const dateObj = new Date(job.date);
+
+    // Add NZ timezone offset to get the date in NZ timezone
+    const nzDateObj = new Date(dateObj.getTime() + (nzOffset * 60 * 60 * 1000));
+
+    // Format to YYYY-MM-DD to normalize dates
+    const dateStr = nzDateObj.toISOString().split('T')[0];
+    
+    if (!dateMap.has(dateStr)) {
+      dateMap.set(dateStr, []);
+    }
+    dateMap.get(dateStr).push(job._id);
+  });
+
+  // Log all unique dates found with count of jobs per date
+  console.log('Unique dates in NZ timezone with job counts:');
+  dateMap.forEach((jobs, dateStr) => {
+    console.log(`- ${dateStr}: ${jobs.length} jobs`);
+  });
+
+  // Get the count of unique dates
+  const uniqueDaysManualCount = dateMap.size;
+  console.log(`Total unique days in NZ timezone (manual count): ${uniqueDaysManualCount}`);
+
+  // Use this count for the response
+  const finalUniqueDays = uniqueDaysManualCount;
+
+  // Get hours by location
+  const hoursByLocation = await Job.aggregate([
+    { $match: { user: userId } },
+    {
+      $group: {
+        _id: '$location',
+        hours: { $sum: { $divide: ['$duration', 60] } },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $project: {
+        locationId: '$_id',
+        hours: 1,
+        count: 1,
+        _id: 0
+      }
+    }
+  ]);
+  
+  // Get hours by tag
+  const hoursByTag = await Job.aggregate([
+    { $match: { user: userId } },
+    { $unwind: { path: '$tags', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: { $ifNull: ['$tags', 'Untagged'] },
+        hours: { $sum: { $divide: ['$duration', 60] } },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $project: {
+        tag: '$_id',
+        hours: 1,
+        count: 1,
+        _id: 0
+      }
+    }
+  ]);
+  
+  // Get recent jobs
+  const recentJobs = await Job.find({ user: userId })
+    .select('title date duration location')
+    .populate('location', 'name')
+    .sort('-date')
+    .limit(6);
+  
+  // Calculate monthly stats
+  const monthlyStats = await Job.aggregate([
+    { $match: { user: userId } },
+    {
+      $project: {
+        year: { $year: '$date' },
+        month: { $month: '$date' },
+        duration: 1
+      }
+    },
+    {
+      $group: {
+        _id: { year: '$year', month: '$month' },
+        hours: { $sum: { $divide: ['$duration', 60] } },
+        count: { $sum: 1 }
+      }
+    },
+    { $sort: { '_id.year': -1, '_id.month': -1 } },
+    {
+      $project: {
+        yearMonth: {
+          $concat: [
+            { $toString: '$_id.year' },
+            '-',
+            {
+              $cond: [
+                { $lt: ['$_id.month', 10] },
+                { $concat: ['0', { $toString: '$_id.month' }] },
+                { $toString: '$_id.month' }
+              ]
+            }
+          ]
+        },
+        hours: 1,
+        count: 1,
+        _id: 0
+      }
+    }
+  ]);
+  
+  // Log the statistics for debugging
+  console.log('Job statistics calculated:', {
+    totalJobs,
+    totalHours,
+    hoursByLocation: hoursByLocation.length,
+    hoursByTag: hoursByTag.length
+  });
+  
+  res.status(200).json({
+    success: true,
+    data: {
+      totalJobs,
+      totalHours,
+      uniqueDays: finalUniqueDays,
+      hoursByLocation,
+      hoursByTag,
+      recentJobs,
+      monthlyStats
+    }
+  });
+});
+
+// # backend/src/controllers/jobs.js - Add this new function to the existing file
+
+/**
+ * @desc    Export jobs data to Excel
+ * @route   GET /api/jobs/export
+ * @access  Private
+ */
+exports.exportJobs = asyncHandler(async (req, res, next) => {
+  try {
+    // Parse query parameters for filtering
+    const { startDate, endDate, locationId, tags } = req.query;
+    
+    // Build filter object
+    const filter = { user: req.user.id };
+    
+    // Add date range filter if provided
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) {
+        filter.date.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        // Add 1 day to endDate to include the entire day
+        const endDateObj = new Date(endDate);
+        endDateObj.setDate(endDateObj.getDate() + 1);
+        filter.date.$lt = endDateObj;
+      }
+    }
+    
+    // Add location filter if provided
+    if (locationId) {
+      filter.location = locationId;
+    }
+    
+    // Add tags filter if provided
+    if (tags) {
+      const tagArray = tags.split(',').map(tag => tag.trim());
+      filter.tags = { $in: tagArray };
+    }
+    
+    // Fetch the filtered jobs with populated location data
+    const jobs = await Job.find(filter)
+      .populate('location', 'name address')
+      .sort('-date');
+    
+    // Early return if no jobs found
+    if (jobs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No jobs found matching the criteria'
+      });
+    }
+    
+    // Calculate total hours
+    const totalMinutes = jobs.reduce((total, job) => total + job.duration, 0);
+    const totalHours = totalMinutes / 60;
+    
+    // Create worksheet data
+    const worksheetData = [
+      // Header row
+      ['Date', 'Title', 'Location', 'Start Time', 'End Time', 'Duration (hours)', 'Tags', 'Notes']
+    ];
+    
+    // Add job data rows
+    jobs.forEach(job => {
+      const jobDate = new Date(job.date);
+      const formattedDate = `${jobDate.getDate().toString().padStart(2, '0')}/${(jobDate.getMonth() + 1).toString().padStart(2, '0')}/${jobDate.getFullYear()}`;
+      
+      const startTime = new Date(job.startTime);
+      const formattedStartTime = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      const endTime = new Date(job.endTime);
+      const formattedEndTime = endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      const durationHours = job.duration / 60;
+      
+      worksheetData.push([
+        formattedDate,
+        job.title,
+        job.location.name,
+        formattedStartTime,
+        formattedEndTime,
+        durationHours.toFixed(2),
+        job.tags ? job.tags.join(', ') : '',
+        job.notes || ''
+      ]);
+    });
+    
+    // Add summary row
+    worksheetData.push([]);
+    worksheetData.push(['Total Hours:', '', '', '', '', totalHours.toFixed(2), '', '']);
+    worksheetData.push(['Total Jobs:', '', '', '', '', jobs.length, '', '']);
+    
+    // Create a worksheet
+    const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+    
+    // Set column widths
+    const columnWidths = [
+      { wch: 12 },  // Date
+      { wch: 30 },  // Title
+      { wch: 25 },  // Location
+      { wch: 12 },  // Start Time
+      { wch: 12 },  // End Time
+      { wch: 15 },  // Duration
+      { wch: 25 },  // Tags
+      { wch: 40 }   // Notes
+    ];
+    worksheet['!cols'] = columnWidths;
+    
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Job Records');
+    
+    // Generate buffer for the workbook
+    const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    // Set response headers for file download
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=TFG_Job_Tracker_Export.xlsx');
+    res.setHeader('Content-Length', excelBuffer.length);
+    
+    // Send the file
+    return res.send(excelBuffer);
+    
+  } catch (error) {
+    console.error('Export error:', error);
+    return next(new ErrorResponse('Error generating export', 500));
+  }
+});
