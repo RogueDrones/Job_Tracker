@@ -1,9 +1,11 @@
 // # backend/src/controllers/jobs.js
 const Job = require('../models/Job');
 const Location = require('../models/Location');
+const Organization = require('../models/Organization');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 const XLSX = require('xlsx');
+const mongoose = require('mongoose');
 
 /**
  * @desc    Get all jobs
@@ -11,9 +13,9 @@ const XLSX = require('xlsx');
  * @access  Private
  */
 exports.getJobs = asyncHandler(async (req, res, next) => {
-  // Add filters, pagination, etc if needed
   const jobs = await Job.find({ user: req.user.id })
     .populate('location', 'name address')
+    .populate('organization', 'name')
     .sort('-date');
   
   res.status(200).json({
@@ -29,16 +31,26 @@ exports.getJobs = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.getJob = asyncHandler(async (req, res, next) => {
-  const job = await Job.findById(req.params.id).populate('location', 'name address coordinates photos');
+  // Add logging to help debug issues
+  console.log(`Get job request for job ID: ${req.params.id}`);
+  
+  const job = await Job.findById(req.params.id)
+    .populate('location', 'name address coordinates photos')
+    .populate('organization', 'name description');
   
   if (!job) {
+    console.log(`Job not found with id: ${req.params.id}`);
     return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
   }
   
   // Check user owns the job
   if (job.user.toString() !== req.user.id) {
+    console.log(`Authorization failed for job: ${req.params.id}, user: ${req.user.id}`);
     return next(new ErrorResponse(`User not authorized to access this job`, 401));
   }
+  
+  // Log the job data being sent to help debug
+  console.log(`Job ${req.params.id} retrieved successfully`);
   
   res.status(200).json({
     success: true,
@@ -52,82 +64,130 @@ exports.getJob = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.createJob = asyncHandler(async (req, res, next) => {
-    // Add user to req.body
-    req.body.user = req.user.id;
-    
-    // Validate location exists and belongs to user
-    const location = await Location.findById(req.body.location);
-    
-    if (!location) {
-      return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
-    }
-    
-    if (location.user.toString() !== req.user.id) {
-      return next(new ErrorResponse(`User not authorized to use this location`, 401));
-    }
-    
-    // Calculate duration if not provided but start and end times are available
-    if (!req.body.duration && req.body.startTime && req.body.endTime) {
-      const startTime = new Date(req.body.startTime);
-      const endTime = new Date(req.body.endTime);
-      req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
-    }
-    
-    const job = await Job.create(req.body);
-    
-    res.status(201).json({
-      success: true,
-      data: job
-    });
-  });
+  // Add user to req.body
+  req.body.user = req.user.id;
   
-  /**
-   * @desc    Update job
-   * @route   PUT /api/jobs/:id
-   * @access  Private
-   */
-  exports.updateJob = asyncHandler(async (req, res, next) => {
-    let job = await Job.findById(req.params.id);
+  // Validate location exists and belongs to user
+  const location = await Location.findById(req.body.location);
+  if (!location) {
+    return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
+  }
+  if (location.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to use this location`, 401));
+  }
+
+  // Validate organization exists and belongs to user
+  const organization = await Organization.findById(req.body.organization);
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.body.organization}`, 404));
+  }
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to use this organization`, 401));
+  }
+  
+  // Calculate duration if not provided but start and end times are available
+  if (!req.body.duration && req.body.startTime && req.body.endTime) {
+    const startTime = new Date(req.body.startTime);
+    const endTime = new Date(req.body.endTime);
+    req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+  }
+  
+  const job = await Job.create(req.body);
+  
+  res.status(201).json({
+    success: true,
+    data: job
+  });
+});
+
+/**
+ * @desc    Update job
+ * @route   PUT /api/jobs/:id
+ * @access  Private
+ */
+exports.updateJob = asyncHandler(async (req, res, next) => {
+  console.log(`Updating job ID: ${req.params.id}`);
+  console.log('Update data received:', req.body);
+
+  // First, find the job to make sure it exists and user owns it
+  let job = await Job.findById(req.params.id);
+  
+  if (!job) {
+    console.log(`Job not found with id: ${req.params.id}`);
+    return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the job
+  if (job.user.toString() !== req.user.id) {
+    console.log(`Authorization failed for job update: ${req.params.id}, user: ${req.user.id}`);
+    return next(new ErrorResponse(`User not authorized to update this job`, 401));
+  }
+  
+  // If location is being updated, validate it
+  if (req.body.location && req.body.location !== job.location.toString()) {
+    console.log(`Validating new location: ${req.body.location}`);
     
-    if (!job) {
-      return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
-    }
-    
-    // Check user owns the job
-    if (job.user.toString() !== req.user.id) {
-      return next(new ErrorResponse(`User not authorized to update this job`, 401));
-    }
-    
-    // If location is being updated, validate it
-    if (req.body.location && req.body.location !== job.location.toString()) {
+    try {
       const location = await Location.findById(req.body.location);
       
       if (!location) {
         return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
       }
       
-      if (location.user.toString() !== req.user.id) {
+      if (location.user && location.user.toString() !== req.user.id) {
         return next(new ErrorResponse(`User not authorized to use this location`, 401));
       }
+    } catch (err) {
+      console.error('Error validating location:', err);
+      return next(new ErrorResponse(`Invalid location ID: ${req.body.location}`, 400));
     }
+  }
+
+  // If organization is being updated, validate it
+  if (req.body.organization && req.body.organization !== (job.organization ? job.organization.toString() : null)) {
+    console.log(`Validating new organization: ${req.body.organization}`);
     
-    // Calculate duration if not provided but start and end times were updated
-    if (!req.body.duration && req.body.startTime && req.body.endTime) {
-      const startTime = new Date(req.body.startTime);
-      const endTime = new Date(req.body.endTime);
-      req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+    try {
+      const organization = await Organization.findById(req.body.organization);
+      
+      if (!organization) {
+        return next(new ErrorResponse(`Organization not found with id of ${req.body.organization}`, 404));
+      }
+      
+      if (organization.user && organization.user.toString() !== req.user.id) {
+        return next(new ErrorResponse(`User not authorized to use this organization`, 401));
+      }
+    } catch (err) {
+      console.error('Error validating organization:', err);
+      return next(new ErrorResponse(`Invalid organization ID: ${req.body.organization}`, 400));
     }
-    
+  }
+  
+  // Calculate duration if not provided but start and end times were updated
+  if (!req.body.duration && req.body.startTime && req.body.endTime) {
+    const startTime = new Date(req.body.startTime);
+    const endTime = new Date(req.body.endTime);
+    req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+  }
+  
+  // Update the job
+  try {
     job = await Job.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true
-    }).populate('location', 'name address');
+    }).populate('location', 'name address').populate('organization', 'name');
+    
+    console.log(`Job ${req.params.id} updated successfully`);
     
     res.status(200).json({
       success: true,
       data: job
     });
-  });
+  } catch (err) {
+    console.error('Error updating job:', err);
+    return next(new ErrorResponse(`Error updating job: ${err.message}`, 500));
+  }
+});
 
 /**
  * @desc    Delete job
@@ -184,7 +244,37 @@ exports.getJobsByLocation = asyncHandler(async (req, res, next) => {
   });
 });
 
-const mongoose = require('mongoose');
+/**
+ * @desc    Get jobs by organization
+ * @route   GET /api/jobs/organization/:organizationId
+ * @access  Private
+ */
+exports.getJobsByOrganization = asyncHandler(async (req, res, next) => {
+  const organization = await Organization.findById(req.params.organizationId);
+  
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.params.organizationId}`, 404));
+  }
+  
+  // Check user owns the organization
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to access this organization`, 401));
+  }
+  
+  const jobs = await Job.find({
+    user: req.user.id,
+    organization: req.params.organizationId
+  })
+    .populate('location', 'name')
+    .populate('organization', 'name')
+    .sort('-date');
+  
+  res.status(200).json({
+    success: true,
+    count: jobs.length,
+    data: jobs
+  });
+});
 
 /**
  * @desc    Get job statistics
@@ -192,7 +282,7 @@ const mongoose = require('mongoose');
  * @access  Private
  */
 exports.getJobStatistics = asyncHandler(async (req, res, next) => {
-  // Convert the user id string to a Mongoose ObjectId using the new keyword
+  // Convert the user id string to a Mongoose ObjectId
   const userId = new mongoose.Types.ObjectId(req.user.id);
 
   // Get total jobs
@@ -290,7 +380,7 @@ exports.getJobStatistics = asyncHandler(async (req, res, next) => {
     .select('title date duration location')
     .populate('location', 'name')
     .sort('-date')
-    .limit(6);
+    .limit(8);
   
   // Calculate monthly stats
   const monthlyStats = await Job.aggregate([
@@ -353,8 +443,6 @@ exports.getJobStatistics = asyncHandler(async (req, res, next) => {
     }
   });
 });
-
-// # backend/src/controllers/jobs.js - Add this new function to the existing file
 
 /**
  * @desc    Export jobs data to Excel

@@ -24,9 +24,18 @@ export const fetchJobs = async () => {
 export const getJob = async (id) => {
   try {
     const response = await api.get(`/jobs/${id}`);
+    console.log('Job response data:', response.data);
+    
+    // Make sure we're returning the correct structure
+    if (!response.data.data) {
+      toast.error('Invalid job data returned from server');
+      throw new Error('Invalid job data structure');
+    }
+    
     return response.data.data;
   } catch (error) {
-    toast.error('Failed to fetch job details');
+    toast.error('Failed to fetch job details: ' + (error.message || 'Unknown error'));
+    console.error('Error in getJob service:', error);
     throw error;
   }
 };
@@ -38,10 +47,27 @@ export const getJob = async (id) => {
  */
 export const createJob = async (jobData) => {
   try {
-    const response = await api.post('/jobs', jobData);
+    console.log('Creating new job with data:', jobData);
+    
+    // Clean up any potentially undefined values
+    const cleanJobData = { ...jobData };
+    
+    // Make sure location and organization are valid IDs
+    if (typeof cleanJobData.location === 'object' && cleanJobData.location?._id) {
+      cleanJobData.location = cleanJobData.location._id;
+    }
+    
+    if (typeof cleanJobData.organization === 'object' && cleanJobData.organization?._id) {
+      cleanJobData.organization = cleanJobData.organization._id;
+    }
+    
+    const response = await api.post('/jobs', cleanJobData);
+    console.log('Create job response:', response.data);
     toast.success('Job created successfully');
     return response.data.data;
   } catch (error) {
+    console.error('Error creating job:', error);
+    console.error('Error response:', error.response?.data);
     const errorMessage = error.response?.data?.error || 'Failed to create job';
     toast.error(errorMessage);
     throw error;
@@ -56,10 +82,28 @@ export const createJob = async (jobData) => {
  */
 export const updateJob = async (id, jobData) => {
   try {
-    const response = await api.put(`/jobs/${id}`, jobData);
+    console.log('Updating job with ID:', id);
+    console.log('Job data being sent:', jobData);
+    
+    // Clean up any potentially undefined values that might be causing issues
+    const cleanJobData = { ...jobData };
+    
+    // Make sure location and organization are valid IDs
+    if (typeof cleanJobData.location === 'object' && cleanJobData.location?._id) {
+      cleanJobData.location = cleanJobData.location._id;
+    }
+    
+    if (typeof cleanJobData.organization === 'object' && cleanJobData.organization?._id) {
+      cleanJobData.organization = cleanJobData.organization._id;
+    }
+    
+    const response = await api.put(`/jobs/${id}`, cleanJobData);
+    console.log('Update job response:', response.data);
     toast.success('Job updated successfully');
     return response.data.data;
   } catch (error) {
+    console.error('Error updating job:', error);
+    console.error('Error response:', error.response?.data);
     const errorMessage = error.response?.data?.error || 'Failed to update job';
     toast.error(errorMessage);
     throw error;
@@ -102,7 +146,7 @@ export const getJobsByLocation = async (locationId) => {
  */
 export const fetchJobStatistics = async () => {
   try {
-    const response = await api.get('/jobs/statistics');
+    const response = await api.get('/jobs/statistics?recentCount=8');
     
     // Add this detailed logging
     console.log('Raw statistics API response:', response);

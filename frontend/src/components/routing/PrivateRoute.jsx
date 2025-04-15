@@ -1,16 +1,19 @@
 // # frontend/src/components/routing/PrivateRoute.jsx
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-const PrivateRoute = ({ children }) => {
+const PrivateRoute = () => {
   const { isAuthenticated, loading } = useAuth();
 
+  // Show loading indicator while checking authentication
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
 
-  return isAuthenticated ? children : <Navigate to="/login" />;
+  // If not authenticated, redirect to login
+  // Otherwise, render the child routes using Outlet
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" />;
 };
 
 export default PrivateRoute;

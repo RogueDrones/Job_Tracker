@@ -5,5 +5,6 @@ const router = express.Router();
 router.use('/api/auth', require('./auth'));
 router.use('/api/jobs', require('./jobs'));
 router.use('/api/locations', require('./locations'));
+router.use('/api/organizations', require('./organizations'));
 
 module.exports = router;

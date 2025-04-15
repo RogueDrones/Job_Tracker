@@ -1,102 +1,61 @@
 // # frontend/src/App.jsx
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Dashboard from './components/dashboard/Dashboard';
-import JobsList from './pages/jobs/JobsList';
-import JobDetails from './pages/jobs/JobDetails';
-import JobForm from './components/jobs/JobForm';
-import LocationsList from './pages/locations/LocationsList';
-import LocationDetails from './pages/locations/LocationDetails';
-import LocationForm from './components/locations/LocationForm';
+import PrivateRoute from './components/routing/PrivateRoute';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
-import PrivateRoute from './components/routing/PrivateRoute';
-import { useAuth } from './context/AuthContext';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import JobsList from './pages/jobs/JobsList';
+import JobDetails from './pages/jobs/JobDetails';
+import LocationsList from './pages/locations/LocationsList';
+import LocationDetails from './pages/locations/LocationDetails';
+import OrganizationsList from './pages/organizations/OrganizationsList';
+import JobForm from './components/jobs/JobForm';
+import LocationForm from './components/locations/LocationForm';
+import OrganizationForm from './components/organizations/OrganizationForm';
+import Dashboard from './components/dashboard/Dashboard';
 import './App.css';
 
-const App = () => {
-  const { isAuthenticated, } = useAuth();
-  
+function App() {
   return (
-    <div className="app-container">
+    <div className="app">
       <Header />
       <main className="main-content">
         <Routes>
-          <Route path="/login" element={
-            isAuthenticated ? <Navigate to="/dashboard" /> : <Login />
-          } />
-          <Route path="/register" element={
-            isAuthenticated ? <Navigate to="/dashboard" /> : <Register />
-          } />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           
-          <Route path="/" element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          } />
-          
-          <Route path="/dashboard" element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          } />
-          
-          {/* Job Routes */}
-          <Route path="/jobs" element={
-            <PrivateRoute>
-              <JobsList />
-            </PrivateRoute>
-          } />
-          <Route path="/jobs/new" element={
-            <PrivateRoute>
-              <JobForm />
-            </PrivateRoute>
-          } />
-          <Route path="/jobs/:id" element={
-            <PrivateRoute>
-              <JobDetails />
-            </PrivateRoute>
-          } />
-          <Route path="/jobs/:id/edit" element={
-            <PrivateRoute>
-              <JobForm isEditing={true} />
-            </PrivateRoute>
-          } />
-          
-          {/* Location Routes */}
-          <Route path="/locations" element={
-            <PrivateRoute>
-              <LocationsList />
-            </PrivateRoute>
-          } />
-          <Route path="/locations/new" element={
-            <PrivateRoute>
-              <LocationForm />
-            </PrivateRoute>
-          } />
-          <Route path="/locations/:id" element={
-            <PrivateRoute>
-              <LocationDetails />
-            </PrivateRoute>
-          } />
-          <Route path="/locations/:id/edit" element={
-            <PrivateRoute>
-              <LocationForm isEditing={true} />
-            </PrivateRoute>
-          } />
-          
-          {/* Fallback route */}
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="/" element={<PrivateRoute />}>
+            <Route index element={<Dashboard />} />
+            
+            {/* Jobs routes */}
+            <Route path="jobs" element={<JobsList />} />
+            <Route path="jobs/new" element={<JobForm />} />
+            <Route path="jobs/edit/:id" element={<JobForm isEditing />} />
+            <Route path="jobs/:id" element={<JobDetails />} />
+            
+            {/* Locations routes */}
+            <Route path="locations" element={<LocationsList />} />
+            <Route path="locations/new" element={<LocationForm />} />
+            <Route path="locations/edit/:id" element={<LocationForm isEditing />} />
+            <Route path="locations/:id" element={<LocationDetails />} />
+            
+            {/* Organizations routes */}
+            <Route path="organizations" element={<OrganizationsList />} />
+            <Route path="organizations/new" element={<OrganizationForm />} />
+            <Route path="organizations/edit/:id" element={<OrganizationForm isEditing />} />
+          </Route>
         </Routes>
       </main>
       <Footer />
+      
+      {/* Toast notifications container */}
       <ToastContainer position="bottom-right" />
     </div>
   );
-};
+}
 
 export default App;

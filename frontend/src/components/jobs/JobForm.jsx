@@ -2,9 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchLocations } from '../../services/locationService';
+import { getOrganizations } from '../../services/organizationService';
 import { createJob, updateJob, getJob } from '../../services/jobService';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
 import './JobForm.css';
 
 const JobForm = ({ isEditing = false }) => {
@@ -13,48 +12,75 @@ const JobForm = ({ isEditing = false }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    date: new Date(),
-    startTime: new Date(),
-    endTime: new Date(new Date().getTime() + 60 * 60 * 1000), // Default 1 hour
+    date: new Date().toISOString().split('T')[0],
+    startTime: '09:00',
+    endTime: '17:00',
     location: '',
+    organization: '',
     tags: '',
     notes: ''
   });
   const [locations, setLocations] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch locations and job data if editing
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
+        setError(null);
+
+        // Fetch locations and organizations in parallel
+        const [locationData, organizationData] = await Promise.all([
+          fetchLocations(),
+          getOrganizations()
+        ]);
         
-        // Load locations
-        const locationData = await fetchLocations();
         setLocations(locationData);
-        
-        // If editing, load job data
+        setOrganizations(organizationData);
+
+        // If editing, fetch job data
         if (isEditing && id) {
           const jobData = await getJob(id);
           
-          // Convert string dates to Date objects
-          const job = {
-            ...jobData,
-            date: new Date(jobData.date),
-            startTime: new Date(jobData.startTime),
-            endTime: new Date(jobData.endTime),
-            tags: jobData.tags ? jobData.tags.join(', ') : ''
+          console.log("Job data received:", jobData);
+          
+          // Format date and times for form inputs
+          const date = new Date(jobData.date).toISOString().split('T')[0];
+          
+          // Format start and end times
+          const formatTime = (timeStr) => {
+            const time = new Date(timeStr);
+            return time.toTimeString().slice(0, 5); // Get HH:MM format
           };
           
-          setFormData(job);
+          const startTime = formatTime(jobData.startTime);
+          const endTime = formatTime(jobData.endTime);
+          
+          // Handle location and organization IDs safely
+          // Check if location and organization are objects with _id or strings
+          const locationId = jobData.location?._id || jobData.location || '';
+          const organizationId = jobData.organization?._id || jobData.organization || '';
+          
+          setFormData({
+            title: jobData.title || '',
+            description: jobData.description || '',
+            date,
+            startTime,
+            endTime,
+            location: locationId,
+            organization: organizationId,
+            tags: jobData.tags ? jobData.tags.join(', ') : '',
+            notes: jobData.notes || ''
+          });
         }
-        
+
         setLoading(false);
       } catch (err) {
-        setError('Failed to load data');
-        setLoading(false);
         console.error('Error loading form data:', err);
+        setError('Failed to load data. Please try again.');
+        setLoading(false);
       }
     };
 
@@ -66,33 +92,43 @@ const JobForm = ({ isEditing = false }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleDateChange = (date, field) => {
-    setFormData(prev => ({ ...prev, [field]: date }));
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       setLoading(true);
-      
-      // Format data for API
+      setError(null);
+
+      // Create a copy of the form data for submission
       const jobData = {
         ...formData,
-        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
-      
+
+      // Convert date and times to proper datetime format
+      const combineDateTime = (date, time) => {
+        const [hours, minutes] = time.split(':');
+        const dateTime = new Date(date);
+        dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+        return dateTime.toISOString();
+      };
+
+      jobData.startTime = combineDateTime(formData.date, formData.startTime);
+      jobData.endTime = combineDateTime(formData.date, formData.endTime);
+
+      // Submit the job data
       if (isEditing) {
         await updateJob(id, jobData);
       } else {
         await createJob(jobData);
       }
-      
+
+      // Redirect back to jobs list
       navigate('/jobs');
     } catch (err) {
-      setError('Failed to save job');
-      setLoading(false);
       console.error('Error saving job:', err);
+      setError('Failed to save job. Please check your inputs and try again.');
+      setLoading(false);
     }
   };
 
@@ -106,7 +142,7 @@ const JobForm = ({ isEditing = false }) => {
       
       {error && <div className="error-message">{error}</div>}
       
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="job-form">
         <div className="form-group">
           <label htmlFor="title">Job Title</label>
           <input
@@ -132,41 +168,57 @@ const JobForm = ({ isEditing = false }) => {
         <div className="form-row">
           <div className="form-group">
             <label htmlFor="date">Date</label>
-            <DatePicker
-              selected={formData.date}
-              onChange={(date) => handleDateChange(date, 'date')}
-              dateFormat="MMMM d, yyyy"
-              className="date-picker"
+            <input
+              type="date"
+              id="date"
+              name="date"
+              value={formData.date}
+              onChange={handleChange}
+              required
             />
           </div>
           
           <div className="form-group">
             <label htmlFor="startTime">Start Time</label>
-            <DatePicker
-              selected={formData.startTime}
-              onChange={(date) => handleDateChange(date, 'startTime')}
-              showTimeSelect
-              showTimeSelectOnly
-              timeIntervals={15}
-              timeCaption="Time"
-              dateFormat="h:mm aa"
-              className="time-picker"
+            <input
+              type="time"
+              id="startTime"
+              name="startTime"
+              value={formData.startTime}
+              onChange={handleChange}
+              required
             />
           </div>
           
           <div className="form-group">
             <label htmlFor="endTime">End Time</label>
-            <DatePicker
-              selected={formData.endTime}
-              onChange={(date) => handleDateChange(date, 'endTime')}
-              showTimeSelect
-              showTimeSelectOnly
-              timeIntervals={15}
-              timeCaption="Time"
-              dateFormat="h:mm aa"
-              className="time-picker"
+            <input
+              type="time"
+              id="endTime"
+              name="endTime"
+              value={formData.endTime}
+              onChange={handleChange}
+              required
             />
           </div>
+        </div>
+        
+        <div className="form-group">
+          <label htmlFor="organization">Organization</label>
+          <select
+            id="organization"
+            name="organization"
+            value={formData.organization}
+            onChange={handleChange}
+            required
+          >
+            <option value="">Select an organization</option>
+            {organizations.map(org => (
+              <option key={org._id} value={org._id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
         </div>
         
         <div className="form-group">
@@ -188,7 +240,7 @@ const JobForm = ({ isEditing = false }) => {
         </div>
         
         <div className="form-group">
-          <label htmlFor="tags">Tags (comma separated)</label>
+          <label htmlFor="tags">Tags (comma-separated)</label>
           <input
             type="text"
             id="tags"
@@ -210,10 +262,18 @@ const JobForm = ({ isEditing = false }) => {
         </div>
         
         <div className="form-actions">
-          <button type="button" onClick={() => navigate('/jobs')} className="btn-secondary">
+          <button 
+            type="button" 
+            onClick={() => navigate('/jobs')} 
+            className="btn-secondary"
+          >
             Cancel
           </button>
-          <button type="submit" className="btn-primary" disabled={loading}>
+          <button 
+            type="submit" 
+            className="btn-primary" 
+            disabled={loading}
+          >
             {loading ? 'Saving...' : isEditing ? 'Update Job' : 'Create Job'}
           </button>
         </div>

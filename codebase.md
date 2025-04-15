@@ -148,6 +148,48 @@
   }
 ```
 
+# .gitignore
+
+```
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Production
+/frontend/build
+
+# Misc
+.DS_Store
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE specific files
+.idea
+.vscode
+*.swp
+*.swo
+
+# Temporary files
+*.log
+*.tmp
+
+# Image uploads
+/backend/uploads/*
+!/backend/uploads/.gitkeep
+```
+
 # backend\check-db.js
 
 ```js
@@ -488,9 +530,11 @@ const sendTokenResponse = (user, statusCode, res) => {
 // # backend/src/controllers/jobs.js
 const Job = require('../models/Job');
 const Location = require('../models/Location');
+const Organization = require('../models/Organization');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 const XLSX = require('xlsx');
+const mongoose = require('mongoose');
 
 /**
  * @desc    Get all jobs
@@ -498,9 +542,9 @@ const XLSX = require('xlsx');
  * @access  Private
  */
 exports.getJobs = asyncHandler(async (req, res, next) => {
-  // Add filters, pagination, etc if needed
   const jobs = await Job.find({ user: req.user.id })
     .populate('location', 'name address')
+    .populate('organization', 'name')
     .sort('-date');
   
   res.status(200).json({
@@ -516,16 +560,26 @@ exports.getJobs = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.getJob = asyncHandler(async (req, res, next) => {
-  const job = await Job.findById(req.params.id).populate('location', 'name address coordinates photos');
+  // Add logging to help debug issues
+  console.log(`Get job request for job ID: ${req.params.id}`);
+  
+  const job = await Job.findById(req.params.id)
+    .populate('location', 'name address coordinates photos')
+    .populate('organization', 'name description');
   
   if (!job) {
+    console.log(`Job not found with id: ${req.params.id}`);
     return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
   }
   
   // Check user owns the job
   if (job.user.toString() !== req.user.id) {
+    console.log(`Authorization failed for job: ${req.params.id}, user: ${req.user.id}`);
     return next(new ErrorResponse(`User not authorized to access this job`, 401));
   }
+  
+  // Log the job data being sent to help debug
+  console.log(`Job ${req.params.id} retrieved successfully`);
   
   res.status(200).json({
     success: true,
@@ -539,82 +593,130 @@ exports.getJob = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.createJob = asyncHandler(async (req, res, next) => {
-    // Add user to req.body
-    req.body.user = req.user.id;
-    
-    // Validate location exists and belongs to user
-    const location = await Location.findById(req.body.location);
-    
-    if (!location) {
-      return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
-    }
-    
-    if (location.user.toString() !== req.user.id) {
-      return next(new ErrorResponse(`User not authorized to use this location`, 401));
-    }
-    
-    // Calculate duration if not provided but start and end times are available
-    if (!req.body.duration && req.body.startTime && req.body.endTime) {
-      const startTime = new Date(req.body.startTime);
-      const endTime = new Date(req.body.endTime);
-      req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
-    }
-    
-    const job = await Job.create(req.body);
-    
-    res.status(201).json({
-      success: true,
-      data: job
-    });
-  });
+  // Add user to req.body
+  req.body.user = req.user.id;
   
-  /**
-   * @desc    Update job
-   * @route   PUT /api/jobs/:id
-   * @access  Private
-   */
-  exports.updateJob = asyncHandler(async (req, res, next) => {
-    let job = await Job.findById(req.params.id);
+  // Validate location exists and belongs to user
+  const location = await Location.findById(req.body.location);
+  if (!location) {
+    return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
+  }
+  if (location.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to use this location`, 401));
+  }
+
+  // Validate organization exists and belongs to user
+  const organization = await Organization.findById(req.body.organization);
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.body.organization}`, 404));
+  }
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to use this organization`, 401));
+  }
+  
+  // Calculate duration if not provided but start and end times are available
+  if (!req.body.duration && req.body.startTime && req.body.endTime) {
+    const startTime = new Date(req.body.startTime);
+    const endTime = new Date(req.body.endTime);
+    req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+  }
+  
+  const job = await Job.create(req.body);
+  
+  res.status(201).json({
+    success: true,
+    data: job
+  });
+});
+
+/**
+ * @desc    Update job
+ * @route   PUT /api/jobs/:id
+ * @access  Private
+ */
+exports.updateJob = asyncHandler(async (req, res, next) => {
+  console.log(`Updating job ID: ${req.params.id}`);
+  console.log('Update data received:', req.body);
+
+  // First, find the job to make sure it exists and user owns it
+  let job = await Job.findById(req.params.id);
+  
+  if (!job) {
+    console.log(`Job not found with id: ${req.params.id}`);
+    return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the job
+  if (job.user.toString() !== req.user.id) {
+    console.log(`Authorization failed for job update: ${req.params.id}, user: ${req.user.id}`);
+    return next(new ErrorResponse(`User not authorized to update this job`, 401));
+  }
+  
+  // If location is being updated, validate it
+  if (req.body.location && req.body.location !== job.location.toString()) {
+    console.log(`Validating new location: ${req.body.location}`);
     
-    if (!job) {
-      return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
-    }
-    
-    // Check user owns the job
-    if (job.user.toString() !== req.user.id) {
-      return next(new ErrorResponse(`User not authorized to update this job`, 401));
-    }
-    
-    // If location is being updated, validate it
-    if (req.body.location && req.body.location !== job.location.toString()) {
+    try {
       const location = await Location.findById(req.body.location);
       
       if (!location) {
         return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
       }
       
-      if (location.user.toString() !== req.user.id) {
+      if (location.user && location.user.toString() !== req.user.id) {
         return next(new ErrorResponse(`User not authorized to use this location`, 401));
       }
+    } catch (err) {
+      console.error('Error validating location:', err);
+      return next(new ErrorResponse(`Invalid location ID: ${req.body.location}`, 400));
     }
+  }
+
+  // If organization is being updated, validate it
+  if (req.body.organization && req.body.organization !== (job.organization ? job.organization.toString() : null)) {
+    console.log(`Validating new organization: ${req.body.organization}`);
     
-    // Calculate duration if not provided but start and end times were updated
-    if (!req.body.duration && req.body.startTime && req.body.endTime) {
-      const startTime = new Date(req.body.startTime);
-      const endTime = new Date(req.body.endTime);
-      req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+    try {
+      const organization = await Organization.findById(req.body.organization);
+      
+      if (!organization) {
+        return next(new ErrorResponse(`Organization not found with id of ${req.body.organization}`, 404));
+      }
+      
+      if (organization.user && organization.user.toString() !== req.user.id) {
+        return next(new ErrorResponse(`User not authorized to use this organization`, 401));
+      }
+    } catch (err) {
+      console.error('Error validating organization:', err);
+      return next(new ErrorResponse(`Invalid organization ID: ${req.body.organization}`, 400));
     }
-    
+  }
+  
+  // Calculate duration if not provided but start and end times were updated
+  if (!req.body.duration && req.body.startTime && req.body.endTime) {
+    const startTime = new Date(req.body.startTime);
+    const endTime = new Date(req.body.endTime);
+    req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
+  }
+  
+  // Update the job
+  try {
     job = await Job.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true
-    }).populate('location', 'name address');
+    }).populate('location', 'name address').populate('organization', 'name');
+    
+    console.log(`Job ${req.params.id} updated successfully`);
     
     res.status(200).json({
       success: true,
       data: job
     });
-  });
+  } catch (err) {
+    console.error('Error updating job:', err);
+    return next(new ErrorResponse(`Error updating job: ${err.message}`, 500));
+  }
+});
 
 /**
  * @desc    Delete job
@@ -671,7 +773,37 @@ exports.getJobsByLocation = asyncHandler(async (req, res, next) => {
   });
 });
 
-const mongoose = require('mongoose');
+/**
+ * @desc    Get jobs by organization
+ * @route   GET /api/jobs/organization/:organizationId
+ * @access  Private
+ */
+exports.getJobsByOrganization = asyncHandler(async (req, res, next) => {
+  const organization = await Organization.findById(req.params.organizationId);
+  
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.params.organizationId}`, 404));
+  }
+  
+  // Check user owns the organization
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to access this organization`, 401));
+  }
+  
+  const jobs = await Job.find({
+    user: req.user.id,
+    organization: req.params.organizationId
+  })
+    .populate('location', 'name')
+    .populate('organization', 'name')
+    .sort('-date');
+  
+  res.status(200).json({
+    success: true,
+    count: jobs.length,
+    data: jobs
+  });
+});
 
 /**
  * @desc    Get job statistics
@@ -679,7 +811,7 @@ const mongoose = require('mongoose');
  * @access  Private
  */
 exports.getJobStatistics = asyncHandler(async (req, res, next) => {
-  // Convert the user id string to a Mongoose ObjectId using the new keyword
+  // Convert the user id string to a Mongoose ObjectId
   const userId = new mongoose.Types.ObjectId(req.user.id);
 
   // Get total jobs
@@ -840,8 +972,6 @@ exports.getJobStatistics = asyncHandler(async (req, res, next) => {
     }
   });
 });
-
-// # backend/src/controllers/jobs.js - Add this new function to the existing file
 
 /**
  * @desc    Export jobs data to Excel
@@ -1430,6 +1560,123 @@ exports.getNearbyLocations = asyncHandler(async (req, res, next) => {
 });
 ```
 
+# backend\src\controllers\organizations.js
+
+```js
+// # backend/src/controllers/organizations.js
+const Organization = require('../models/Organization');
+const asyncHandler = require('../middleware/async');
+const ErrorResponse = require('../utils/errorResponse');
+
+/**
+ * @desc    Get all organizations
+ * @route   GET /api/organizations
+ * @access  Private
+ */
+exports.getOrganizations = asyncHandler(async (req, res, next) => {
+  const organizations = await Organization.find({ user: req.user.id });
+  
+  res.status(200).json({
+    success: true,
+    count: organizations.length,
+    data: organizations
+  });
+});
+
+/**
+ * @desc    Get single organization
+ * @route   GET /api/organizations/:id
+ * @access  Private
+ */
+exports.getOrganization = asyncHandler(async (req, res, next) => {
+  const organization = await Organization.findById(req.params.id);
+  
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the organization
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to access this organization`, 401));
+  }
+  
+  res.status(200).json({
+    success: true,
+    data: organization
+  });
+});
+
+/**
+ * @desc    Create new organization
+ * @route   POST /api/organizations
+ * @access  Private
+ */
+exports.createOrganization = asyncHandler(async (req, res, next) => {
+  // Add user to req.body
+  req.body.user = req.user.id;
+  
+  const organization = await Organization.create(req.body);
+  
+  res.status(201).json({
+    success: true,
+    data: organization
+  });
+});
+
+/**
+ * @desc    Update organization
+ * @route   PUT /api/organizations/:id
+ * @access  Private
+ */
+exports.updateOrganization = asyncHandler(async (req, res, next) => {
+  let organization = await Organization.findById(req.params.id);
+  
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the organization
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to update this organization`, 401));
+  }
+  
+  organization = await Organization.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true
+  });
+  
+  res.status(200).json({
+    success: true,
+    data: organization
+  });
+});
+
+/**
+ * @desc    Delete organization
+ * @route   DELETE /api/organizations/:id
+ * @access  Private
+ */
+exports.deleteOrganization = asyncHandler(async (req, res, next) => {
+  const organization = await Organization.findById(req.params.id);
+  
+  if (!organization) {
+    return next(new ErrorResponse(`Organization not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the organization
+  if (organization.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to delete this organization`, 401));
+  }
+  
+  await Organization.findByIdAndDelete(req.params.id);
+  
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+});
+```
+
 # backend\src\middleware\async.js
 
 ```js
@@ -1599,7 +1846,7 @@ const mongoose = require('mongoose');
 const JobSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: true,
+    required: [true, 'Please add a job title'],
     trim: true
   },
   description: {
@@ -1621,6 +1868,11 @@ const JobSchema = new mongoose.Schema({
   },
   duration: {
     type: Number,  // Duration in minutes
+    required: true
+  },
+  organization: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
     required: true
   },
   location: {
@@ -1653,10 +1905,14 @@ const JobSchema = new mongoose.Schema({
 
 // Calculate duration before saving
 JobSchema.pre('save', function(next) {
+  // Update duration if start and end times are available
   if (this.startTime && this.endTime) {
     this.duration = Math.round((this.endTime - this.startTime) / (1000 * 60));
   }
+  
+  // Update the updatedAt timestamp
   this.updatedAt = Date.now();
+  
   next();
 });
 
@@ -1732,6 +1988,65 @@ LocationSchema.pre('save', function(next) {
 });
 
 module.exports = mongoose.model('Location', LocationSchema);
+```
+
+# backend\src\models\Organization.js
+
+```js
+// # backend/src/models/Organization.js
+const mongoose = require('mongoose');
+
+const OrganizationSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Please add an organization name'],
+    trim: true,
+    maxlength: [100, 'Name cannot be more than 100 characters']
+  },
+  description: {
+    type: String,
+    trim: true
+  },
+  contact: {
+    name: {
+      type: String,
+      trim: true
+    },
+    email: {
+      type: String,
+      trim: true,
+      match: [
+        /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
+        'Please add a valid email'
+      ]
+    },
+    phone: {
+      type: String,
+      trim: true
+    }
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Update the updatedAt timestamp before saving
+OrganizationSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+module.exports = mongoose.model('Organization', OrganizationSchema);
 ```
 
 # backend\src\models\User.js
@@ -1818,6 +2133,7 @@ const router = express.Router();
 router.use('/api/auth', require('./auth'));
 router.use('/api/jobs', require('./jobs'));
 router.use('/api/locations', require('./locations'));
+router.use('/api/organizations', require('./organizations'));
 
 module.exports = router;
 ```
@@ -1896,6 +2212,33 @@ router.route('/:id')
 // Photo-related routes
 router.post('/:id/photos', protect, upload, uploadLocationPhoto);
 router.delete('/:id/photos/:photoId', protect, deleteLocationPhoto);
+
+module.exports = router;
+```
+
+# backend\src\routes\organizations.js
+
+```js
+// # backend/src/routes/organizations.js
+const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/auth');
+const { 
+  getOrganizations,
+  getOrganization,
+  createOrganization,
+  updateOrganization,
+  deleteOrganization
+} = require('../controllers/organizations');
+
+router.route('/')
+  .get(protect, getOrganizations)
+  .post(protect, createOrganization);
+
+router.route('/:id')
+  .get(protect, getOrganization)
+  .put(protect, updateOrganization)
+  .delete(protect, deleteOrganization);
 
 module.exports = router;
 ```
@@ -2325,104 +2668,63 @@ This is a binary file of the type: Image
 ```jsx
 // # frontend/src/App.jsx
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Dashboard from './components/dashboard/Dashboard';
-import JobsList from './pages/jobs/JobsList';
-import JobDetails from './pages/jobs/JobDetails';
-import JobForm from './components/jobs/JobForm';
-import LocationsList from './pages/locations/LocationsList';
-import LocationDetails from './pages/locations/LocationDetails';
-import LocationForm from './components/locations/LocationForm';
+import PrivateRoute from './components/routing/PrivateRoute';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
-import PrivateRoute from './components/routing/PrivateRoute';
-import { useAuth } from './context/AuthContext';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import JobsList from './pages/jobs/JobsList';
+import JobDetails from './pages/jobs/JobDetails';
+import LocationsList from './pages/locations/LocationsList';
+import LocationDetails from './pages/locations/LocationDetails';
+import OrganizationsList from './pages/organizations/OrganizationsList';
+import JobForm from './components/jobs/JobForm';
+import LocationForm from './components/locations/LocationForm';
+import OrganizationForm from './components/organizations/OrganizationForm';
+import Dashboard from './components/dashboard/Dashboard';
 import './App.css';
 
-const App = () => {
-  const { isAuthenticated, } = useAuth();
-  
+function App() {
   return (
-    <div className="app-container">
+    <div className="app">
       <Header />
       <main className="main-content">
         <Routes>
-          <Route path="/login" element={
-            isAuthenticated ? <Navigate to="/dashboard" /> : <Login />
-          } />
-          <Route path="/register" element={
-            isAuthenticated ? <Navigate to="/dashboard" /> : <Register />
-          } />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           
-          <Route path="/" element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          } />
-          
-          <Route path="/dashboard" element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          } />
-          
-          {/* Job Routes */}
-          <Route path="/jobs" element={
-            <PrivateRoute>
-              <JobsList />
-            </PrivateRoute>
-          } />
-          <Route path="/jobs/new" element={
-            <PrivateRoute>
-              <JobForm />
-            </PrivateRoute>
-          } />
-          <Route path="/jobs/:id" element={
-            <PrivateRoute>
-              <JobDetails />
-            </PrivateRoute>
-          } />
-          <Route path="/jobs/:id/edit" element={
-            <PrivateRoute>
-              <JobForm isEditing={true} />
-            </PrivateRoute>
-          } />
-          
-          {/* Location Routes */}
-          <Route path="/locations" element={
-            <PrivateRoute>
-              <LocationsList />
-            </PrivateRoute>
-          } />
-          <Route path="/locations/new" element={
-            <PrivateRoute>
-              <LocationForm />
-            </PrivateRoute>
-          } />
-          <Route path="/locations/:id" element={
-            <PrivateRoute>
-              <LocationDetails />
-            </PrivateRoute>
-          } />
-          <Route path="/locations/:id/edit" element={
-            <PrivateRoute>
-              <LocationForm isEditing={true} />
-            </PrivateRoute>
-          } />
-          
-          {/* Fallback route */}
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="/" element={<PrivateRoute />}>
+            <Route index element={<Dashboard />} />
+            
+            {/* Jobs routes */}
+            <Route path="jobs" element={<JobsList />} />
+            <Route path="jobs/new" element={<JobForm />} />
+            <Route path="jobs/edit/:id" element={<JobForm isEditing />} />
+            <Route path="jobs/:id" element={<JobDetails />} />
+            
+            {/* Locations routes */}
+            <Route path="locations" element={<LocationsList />} />
+            <Route path="locations/new" element={<LocationForm />} />
+            <Route path="locations/edit/:id" element={<LocationForm isEditing />} />
+            <Route path="locations/:id" element={<LocationDetails />} />
+            
+            {/* Organizations routes */}
+            <Route path="organizations" element={<OrganizationsList />} />
+            <Route path="organizations/new" element={<OrganizationForm />} />
+            <Route path="organizations/edit/:id" element={<OrganizationForm isEditing />} />
+          </Route>
         </Routes>
       </main>
       <Footer />
+      
+      {/* Toast notifications container */}
       <ToastContainer position="bottom-right" />
     </div>
   );
-};
+}
 
 export default App;
 ```
@@ -3031,9 +3333,8 @@ export default ExportDialog;
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchLocations } from '../../services/locationService';
+import { getOrganizations } from '../../services/organizationService';
 import { createJob, updateJob, getJob } from '../../services/jobService';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
 import './JobForm.css';
 
 const JobForm = ({ isEditing = false }) => {
@@ -3042,48 +3343,75 @@ const JobForm = ({ isEditing = false }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    date: new Date(),
-    startTime: new Date(),
-    endTime: new Date(new Date().getTime() + 60 * 60 * 1000), // Default 1 hour
+    date: new Date().toISOString().split('T')[0],
+    startTime: '09:00',
+    endTime: '17:00',
     location: '',
+    organization: '',
     tags: '',
     notes: ''
   });
   const [locations, setLocations] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch locations and job data if editing
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
+        setError(null);
+
+        // Fetch locations and organizations in parallel
+        const [locationData, organizationData] = await Promise.all([
+          fetchLocations(),
+          getOrganizations()
+        ]);
         
-        // Load locations
-        const locationData = await fetchLocations();
         setLocations(locationData);
-        
-        // If editing, load job data
+        setOrganizations(organizationData);
+
+        // If editing, fetch job data
         if (isEditing && id) {
           const jobData = await getJob(id);
           
-          // Convert string dates to Date objects
-          const job = {
-            ...jobData,
-            date: new Date(jobData.date),
-            startTime: new Date(jobData.startTime),
-            endTime: new Date(jobData.endTime),
-            tags: jobData.tags ? jobData.tags.join(', ') : ''
+          console.log("Job data received:", jobData);
+          
+          // Format date and times for form inputs
+          const date = new Date(jobData.date).toISOString().split('T')[0];
+          
+          // Format start and end times
+          const formatTime = (timeStr) => {
+            const time = new Date(timeStr);
+            return time.toTimeString().slice(0, 5); // Get HH:MM format
           };
           
-          setFormData(job);
+          const startTime = formatTime(jobData.startTime);
+          const endTime = formatTime(jobData.endTime);
+          
+          // Handle location and organization IDs safely
+          // Check if location and organization are objects with _id or strings
+          const locationId = jobData.location?._id || jobData.location || '';
+          const organizationId = jobData.organization?._id || jobData.organization || '';
+          
+          setFormData({
+            title: jobData.title || '',
+            description: jobData.description || '',
+            date,
+            startTime,
+            endTime,
+            location: locationId,
+            organization: organizationId,
+            tags: jobData.tags ? jobData.tags.join(', ') : '',
+            notes: jobData.notes || ''
+          });
         }
-        
+
         setLoading(false);
       } catch (err) {
-        setError('Failed to load data');
-        setLoading(false);
         console.error('Error loading form data:', err);
+        setError('Failed to load data. Please try again.');
+        setLoading(false);
       }
     };
 
@@ -3095,33 +3423,43 @@ const JobForm = ({ isEditing = false }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleDateChange = (date, field) => {
-    setFormData(prev => ({ ...prev, [field]: date }));
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       setLoading(true);
-      
-      // Format data for API
+      setError(null);
+
+      // Create a copy of the form data for submission
       const jobData = {
         ...formData,
-        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
-      
+
+      // Convert date and times to proper datetime format
+      const combineDateTime = (date, time) => {
+        const [hours, minutes] = time.split(':');
+        const dateTime = new Date(date);
+        dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+        return dateTime.toISOString();
+      };
+
+      jobData.startTime = combineDateTime(formData.date, formData.startTime);
+      jobData.endTime = combineDateTime(formData.date, formData.endTime);
+
+      // Submit the job data
       if (isEditing) {
         await updateJob(id, jobData);
       } else {
         await createJob(jobData);
       }
-      
+
+      // Redirect back to jobs list
       navigate('/jobs');
     } catch (err) {
-      setError('Failed to save job');
-      setLoading(false);
       console.error('Error saving job:', err);
+      setError('Failed to save job. Please check your inputs and try again.');
+      setLoading(false);
     }
   };
 
@@ -3135,7 +3473,7 @@ const JobForm = ({ isEditing = false }) => {
       
       {error && <div className="error-message">{error}</div>}
       
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="job-form">
         <div className="form-group">
           <label htmlFor="title">Job Title</label>
           <input
@@ -3161,41 +3499,57 @@ const JobForm = ({ isEditing = false }) => {
         <div className="form-row">
           <div className="form-group">
             <label htmlFor="date">Date</label>
-            <DatePicker
-              selected={formData.date}
-              onChange={(date) => handleDateChange(date, 'date')}
-              dateFormat="MMMM d, yyyy"
-              className="date-picker"
+            <input
+              type="date"
+              id="date"
+              name="date"
+              value={formData.date}
+              onChange={handleChange}
+              required
             />
           </div>
           
           <div className="form-group">
             <label htmlFor="startTime">Start Time</label>
-            <DatePicker
-              selected={formData.startTime}
-              onChange={(date) => handleDateChange(date, 'startTime')}
-              showTimeSelect
-              showTimeSelectOnly
-              timeIntervals={15}
-              timeCaption="Time"
-              dateFormat="h:mm aa"
-              className="time-picker"
+            <input
+              type="time"
+              id="startTime"
+              name="startTime"
+              value={formData.startTime}
+              onChange={handleChange}
+              required
             />
           </div>
           
           <div className="form-group">
             <label htmlFor="endTime">End Time</label>
-            <DatePicker
-              selected={formData.endTime}
-              onChange={(date) => handleDateChange(date, 'endTime')}
-              showTimeSelect
-              showTimeSelectOnly
-              timeIntervals={15}
-              timeCaption="Time"
-              dateFormat="h:mm aa"
-              className="time-picker"
+            <input
+              type="time"
+              id="endTime"
+              name="endTime"
+              value={formData.endTime}
+              onChange={handleChange}
+              required
             />
           </div>
+        </div>
+        
+        <div className="form-group">
+          <label htmlFor="organization">Organization</label>
+          <select
+            id="organization"
+            name="organization"
+            value={formData.organization}
+            onChange={handleChange}
+            required
+          >
+            <option value="">Select an organization</option>
+            {organizations.map(org => (
+              <option key={org._id} value={org._id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
         </div>
         
         <div className="form-group">
@@ -3217,7 +3571,7 @@ const JobForm = ({ isEditing = false }) => {
         </div>
         
         <div className="form-group">
-          <label htmlFor="tags">Tags (comma separated)</label>
+          <label htmlFor="tags">Tags (comma-separated)</label>
           <input
             type="text"
             id="tags"
@@ -3239,10 +3593,18 @@ const JobForm = ({ isEditing = false }) => {
         </div>
         
         <div className="form-actions">
-          <button type="button" onClick={() => navigate('/jobs')} className="btn-secondary">
+          <button 
+            type="button" 
+            onClick={() => navigate('/jobs')} 
+            className="btn-secondary"
+          >
             Cancel
           </button>
-          <button type="submit" className="btn-primary" disabled={loading}>
+          <button 
+            type="submit" 
+            className="btn-primary" 
+            disabled={loading}
+          >
             {loading ? 'Saving...' : isEditing ? 'Update Job' : 'Create Job'}
           </button>
         </div>
@@ -3452,60 +3814,177 @@ export default Footer;
 
 ```jsx
 // # frontend/src/components/layout/Header.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import {
+  AppBar,
+  Box,
+  Toolbar,
+  IconButton,
+  Typography,
+  Menu,
+  Container,
+  Button,
+  MenuItem,
+  useMediaQuery,
+  useTheme
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import { useAuth } from '../../context/AuthContext';
 import './Header.css';
 
 const Header = () => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [anchorElNav, setAnchorElNav] = useState(null);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const pages = [
+    { name: 'Dashboard', path: '/' },
+    { name: 'Jobs', path: '/jobs' },
+    { name: 'Locations', path: '/locations' },
+    { name: 'Organizations', path: '/organizations' }
+  ];
+
+  const handleOpenNavMenu = (event) => {
+    setAnchorElNav(event.currentTarget);
+  };
+
+  const handleCloseNavMenu = () => {
+    setAnchorElNav(null);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   return (
-    <header className="header">
-      <div className="logo">
-        <Link to="/">TFG Job Tracker</Link>
-      </div>
-      
-      {isAuthenticated ? (
-        <nav className="nav-menu">
-          <ul>
-            <li>
-              <Link to="/dashboard">Dashboard</Link>
-            </li>
-            <li>
-              <Link to="/jobs">Jobs</Link>
-            </li>
-            <li>
-              <Link to="/locations">Locations</Link>
-            </li>
-          </ul>
-          
-          <div className="user-menu">
-            <span className="username">{user?.name}</span>
-            <button onClick={handleLogout} className="logout-btn">
-              Logout
-            </button>
-          </div>
-        </nav>
-      ) : (
-        <nav className="nav-menu">
-          <ul>
-            <li>
-              <Link to="/login">Login</Link>
-            </li>
-            <li>
-              <Link to="/register">Register</Link>
-            </li>
-          </ul>
-        </nav>
-      )}
-    </header>
+    <AppBar position="static" className="header">
+      <Container maxWidth="xl">
+        <Toolbar disableGutters>
+          <Typography
+            variant="h6"
+            noWrap
+            component={Link}
+            to="/"
+            sx={{
+              mr: 2,
+              display: { xs: 'none', md: 'flex' },
+              fontWeight: 700,
+              color: 'inherit',
+              textDecoration: 'none',
+            }}
+          >
+            Task Force Green
+          </Typography>
+
+          <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' } }}>
+            <IconButton
+              size="large"
+              aria-label="menu"
+              aria-controls="menu-appbar"
+              aria-haspopup="true"
+              onClick={handleOpenNavMenu}
+              color="inherit"
+            >
+              <MenuIcon />
+            </IconButton>
+            <Menu
+              id="menu-appbar"
+              anchorEl={anchorElNav}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'left',
+              }}
+              keepMounted
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'left',
+              }}
+              open={Boolean(anchorElNav)}
+              onClose={handleCloseNavMenu}
+              sx={{
+                display: { xs: 'block', md: 'none' },
+              }}
+            >
+              {user && pages.map((page) => (
+                <MenuItem 
+                  key={page.name}
+                  onClick={handleCloseNavMenu}
+                  component={Link}
+                  to={page.path}
+                >
+                  <Typography textAlign="center">{page.name}</Typography>
+                </MenuItem>
+              ))}
+            </Menu>
+          </Box>
+
+          <Typography
+            variant="h5"
+            noWrap
+            component={Link}
+            to="/"
+            sx={{
+              mr: 2,
+              display: { xs: 'flex', md: 'none' },
+              flexGrow: 1,
+              fontWeight: 700,
+              color: 'inherit',
+              textDecoration: 'none',
+            }}
+          >
+            TFG
+          </Typography>
+
+          <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' } }}>
+            {user && pages.map((page) => (
+              <Button
+                key={page.name}
+                component={Link}
+                to={page.path}
+                sx={{ my: 2, color: 'white', display: 'block' }}
+              >
+                {page.name}
+              </Button>
+            ))}
+          </Box>
+
+          <Box sx={{ flexGrow: 0 }}>
+            {user ? (
+              <Button 
+                color="inherit" 
+                onClick={handleLogout}
+                sx={{ 
+                  ml: 2,
+                  ...(isMobile && { fontSize: '0.875rem' })
+                }}
+              >
+                Logout
+              </Button>
+            ) : (
+              <Button 
+                color="inherit" 
+                component={Link} 
+                to="/login"
+                sx={{ 
+                  ml: 2,
+                  ...(isMobile && { fontSize: '0.875rem' })
+                }}
+              >
+                Login
+              </Button>
+            )}
+          </Box>
+        </Toolbar>
+      </Container>
+    </AppBar>
   );
 };
 
@@ -4002,22 +4481,254 @@ const LocationMap = ({ singleLocation = null }) => {
 export default LocationMap;
 ```
 
+# frontend\src\components\organizations\OrganizationForm.css
+
+```css
+/* # frontend/src/components/organizations/OrganizationForm.css */
+.organization-form-container {
+  background-color: white;
+  padding: 2rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.organization-form h3 {
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  color: #2e7d32;
+}
+
+/* Reusing form styles from JobForm.css */
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+input, textarea, select {
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid var(--light-gray);
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  background-color: #f9f9f9;
+}
+
+textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2rem;
+}
+```
+
+# frontend\src\components\organizations\OrganizationForm.jsx
+
+```jsx
+// # frontend/src/components/organizations/OrganizationForm.jsx
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { createOrganization, getOrganization, updateOrganization } from '../../services/organizationService';
+import './OrganizationForm.css';
+
+const OrganizationForm = ({ isEditing = false }) => {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    contact: {
+      name: '',
+      email: '',
+      phone: ''
+    }
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const loadOrganization = async () => {
+      if (!isEditing || !id) return;
+      
+      try {
+        setLoading(true);
+        const organizationData = await getOrganization(id);
+        setFormData({
+          name: organizationData.name || '',
+          description: organizationData.description || '',
+          contact: {
+            name: organizationData.contact?.name || '',
+            email: organizationData.contact?.email || '',
+            phone: organizationData.contact?.phone || ''
+          }
+        });
+        setLoading(false);
+      } catch (err) {
+        setError('Failed to load organization data');
+        setLoading(false);
+        console.error('Error loading organization:', err);
+      }
+    };
+
+    loadOrganization();
+  }, [id, isEditing]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    
+    // Handle nested contact fields
+    if (name.startsWith('contact.')) {
+      const contactField = name.split('.')[1];
+      setFormData(prev => ({
+        ...prev,
+        contact: {
+          ...prev.contact,
+          [contactField]: value
+        }
+      }));
+    } else {
+      // Handle top-level fields
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      if (isEditing) {
+        await updateOrganization(id, formData);
+      } else {
+        await createOrganization(formData);
+      }
+      
+      navigate('/organizations');
+    } catch (err) {
+      setError('Failed to save organization');
+      setLoading(false);
+      console.error('Error saving organization:', err);
+    }
+  };
+
+  if (loading && isEditing) {
+    return <div className="loading">Loading organization data...</div>;
+  }
+
+  return (
+    <div className="organization-form-container">
+      <h2>{isEditing ? 'Edit Organization' : 'Add New Organization'}</h2>
+      
+      {error && <div className="error-message">{error}</div>}
+      
+      <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label htmlFor="name">Organization Name</label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            required
+          />
+        </div>
+        
+        <div className="form-group">
+          <label htmlFor="description">Description</label>
+          <textarea
+            id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleChange}
+          />
+        </div>
+        
+        <h3>Contact Information</h3>
+        
+        <div className="form-group">
+          <label htmlFor="contact.name">Contact Name</label>
+          <input
+            type="text"
+            id="contact.name"
+            name="contact.name"
+            value={formData.contact.name}
+            onChange={handleChange}
+          />
+        </div>
+        
+        <div className="form-group">
+          <label htmlFor="contact.email">Contact Email</label>
+          <input
+            type="email"
+            id="contact.email"
+            name="contact.email"
+            value={formData.contact.email}
+            onChange={handleChange}
+          />
+        </div>
+        
+        <div className="form-group">
+          <label htmlFor="contact.phone">Contact Phone</label>
+          <input
+            type="text"
+            id="contact.phone"
+            name="contact.phone"
+            value={formData.contact.phone}
+            onChange={handleChange}
+          />
+        </div>
+        
+        <div className="form-actions">
+          <button type="button" onClick={() => navigate('/organizations')} className="btn-secondary">
+            Cancel
+          </button>
+          <button type="submit" className="btn-primary" disabled={loading}>
+            {loading ? 'Saving...' : isEditing ? 'Update Organization' : 'Create Organization'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default OrganizationForm;
+```
+
 # frontend\src\components\routing\PrivateRoute.jsx
 
 ```jsx
 // # frontend/src/components/routing/PrivateRoute.jsx
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-const PrivateRoute = ({ children }) => {
+const PrivateRoute = () => {
   const { isAuthenticated, loading } = useAuth();
 
+  // Show loading indicator while checking authentication
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
 
-  return isAuthenticated ? children : <Navigate to="/login" />;
+  // If not authenticated, redirect to login
+  // Otherwise, render the child routes using Outlet
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" />;
 };
 
 export default PrivateRoute;
@@ -4289,17 +5000,6 @@ const JobDetails = () => {
     return `${hours}h ${mins}m`;
   };
   
-  const formatDateTime = (dateString) => {
-    const options = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    };
-    return new Date(dateString).toLocaleString(undefined, options);
-  };
-  
   if (loading) {
     return <div className="loading">Loading job details...</div>;
   }
@@ -4322,7 +5022,7 @@ const JobDetails = () => {
         <h1 style={jobDetailsStyles.title}>{job.title}</h1>
         
         <div style={jobDetailsStyles.actions}>
-          <Link to={`/jobs/${id}/edit`} className="btn-secondary">
+          <Link to={`/jobs/edit/${id}`} className="btn-secondary">
             Edit Job
           </Link>
           <button onClick={handleDelete} className="btn-primary" style={{ backgroundColor: '#f44336' }}>
@@ -4370,23 +5070,33 @@ const JobDetails = () => {
         </div>
         
         <div style={jobDetailsStyles.card}>
-          <h2>Location Information</h2>
+          <h2>Organization & Location</h2>
+          
+          {job.organization && (
+            <div style={jobDetailsStyles.infoItem}>
+              <div style={jobDetailsStyles.infoLabel}>Organization</div>
+              <div style={jobDetailsStyles.infoValue}>
+                {job.organization.name}
+              </div>
+              {job.organization.description && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                  {job.organization.description}
+                </div>
+              )}
+            </div>
+          )}
           
           <div style={jobDetailsStyles.infoItem}>
-            <div style={jobDetailsStyles.infoLabel}>Location Name</div>
+            <div style={jobDetailsStyles.infoLabel}>Location</div>
             <div style={jobDetailsStyles.infoValue}>
               {job.location.name}
             </div>
-          </div>
-          
-          {job.location.address && (
-            <div style={jobDetailsStyles.infoItem}>
-              <div style={jobDetailsStyles.infoLabel}>Address</div>
-              <div style={jobDetailsStyles.infoValue}>
+            {job.location.address && (
+              <div style={{ fontSize: '0.9rem' }}>
                 {job.location.address}
               </div>
-            </div>
-          )}
+            )}
+          </div>
           
           <div>
             <Link to={`/locations/${job.location._id}`} className="btn-text">
@@ -5555,6 +6265,213 @@ const Login = () => {
 export default Login;
 ```
 
+# frontend\src\pages\organizations\OrganizationsList.jsx
+
+```jsx
+// # frontend/src/pages/organizations/OrganizationsList.jsx
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { getOrganizations, deleteOrganization } from '../../services/organizationService';
+
+// CSS for this component
+const organizationsListStyles = {
+  container: {
+    marginBottom: '2rem'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '1.5rem'
+  },
+  searchContainer: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: 'white',
+    padding: '1rem',
+    borderRadius: '4px',
+    marginBottom: '1.5rem',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+  },
+  searchInput: {
+    padding: '0.7rem',
+    border: '1px solid #e0e0e0',
+    borderRadius: '4px',
+    width: '300px'
+  },
+  organizationsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: '1.5rem'
+  },
+  organizationCard: {
+    background: 'white',
+    borderRadius: '4px',
+    padding: '1.5rem',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%'
+  },
+  organizationTitle: {
+    fontSize: '1.2rem',
+    fontWeight: 'bold',
+    marginBottom: '0.5rem',
+    color: '#2e7d32'
+  },
+  organizationDescription: {
+    marginBottom: '1rem',
+    flex: '1'
+  },
+  organizationContact: {
+    fontSize: '0.9rem',
+    color: '#757575',
+    marginBottom: '1rem'
+  },
+  organizationActions: {
+    marginTop: 'auto',
+    display: 'flex',
+    justifyContent: 'space-between',
+    paddingTop: '1rem',
+    borderTop: '1px solid #e0e0e0'
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '3rem',
+    background: 'white',
+    borderRadius: '4px',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+  }
+};
+
+const OrganizationsList = () => {
+  const [organizations, setOrganizations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  useEffect(() => {
+    const loadOrganizations = async () => {
+      try {
+        setLoading(true);
+        const data = await getOrganizations();
+        setOrganizations(data);
+        setLoading(false);
+      } catch (err) {
+        setError('Failed to load organizations');
+        setLoading(false);
+        console.error('Error loading organizations:', err);
+      }
+    };
+    
+    loadOrganizations();
+  }, []);
+  
+  const handleDeleteOrganization = async (id) => {
+    if (window.confirm('Are you sure you want to delete this organization?')) {
+      try {
+        await deleteOrganization(id);
+        // Remove organization from state
+        setOrganizations(organizations.filter(org => org._id !== id));
+      } catch (err) {
+        console.error('Error deleting organization:', err);
+      }
+    }
+  };
+  
+  // Filter organizations based on search term
+  const filteredOrganizations = organizations.filter(organization => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      organization.name.toLowerCase().includes(searchLower) ||
+      (organization.description && organization.description.toLowerCase().includes(searchLower)) ||
+      (organization.contact && organization.contact.name && organization.contact.name.toLowerCase().includes(searchLower))
+    );
+  });
+  
+  if (loading) {
+    return <div className="loading">Loading organizations...</div>;
+  }
+  
+  if (error) {
+    return <div className="error-container">{error}</div>;
+  }
+  
+  return (
+    <div style={organizationsListStyles.container}>
+      <div style={organizationsListStyles.header}>
+        <h1>Organizations</h1>
+        <Link to="/organizations/new" className="btn-primary">Add New Organization</Link>
+      </div>
+      
+      {/* Search bar */}
+      <div style={organizationsListStyles.searchContainer}>
+        <input
+          type="text"
+          placeholder="Search organizations..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={organizationsListStyles.searchInput}
+        />
+      </div>
+      
+      {/* Organizations grid */}
+      {filteredOrganizations.length > 0 ? (
+        <div style={organizationsListStyles.organizationsGrid}>
+          {filteredOrganizations.map(organization => (
+            <div key={organization._id} style={organizationsListStyles.organizationCard}>
+              <h3 style={organizationsListStyles.organizationTitle}>{organization.name}</h3>
+              
+              {organization.description && (
+                <p style={organizationsListStyles.organizationDescription}>
+                  {organization.description.length > 150 
+                    ? `${organization.description.substring(0, 150)}...` 
+                    : organization.description}
+                </p>
+              )}
+              
+              {organization.contact && (
+                <div style={organizationsListStyles.organizationContact}>
+                  {organization.contact.name && <div><strong>Contact:</strong> {organization.contact.name}</div>}
+                  {organization.contact.email && <div><strong>Email:</strong> {organization.contact.email}</div>}
+                  {organization.contact.phone && <div><strong>Phone:</strong> {organization.contact.phone}</div>}
+                </div>
+              )}
+              
+              <div style={organizationsListStyles.organizationActions}>
+                <div>
+                  <Link to={`/organizations/edit/${organization._id}`} className="btn-text" style={{ marginRight: '0.5rem' }}>
+                    Edit
+                  </Link>
+                  <button 
+                    className="btn-text" 
+                    style={{ color: '#f44336' }}
+                    onClick={() => handleDeleteOrganization(organization._id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={organizationsListStyles.emptyState}>
+          <h3>No organizations found</h3>
+          <p>Try adjusting your search, or add a new organization.</p>
+          <Link to="/organizations/new" className="btn-primary" style={{ marginTop: '1rem' }}>
+            Add Your First Organization
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default OrganizationsList;
+```
+
 # frontend\src\pages\Register.jsx
 
 ```jsx
@@ -5866,9 +6783,18 @@ export const fetchJobs = async () => {
 export const getJob = async (id) => {
   try {
     const response = await api.get(`/jobs/${id}`);
+    console.log('Job response data:', response.data);
+    
+    // Make sure we're returning the correct structure
+    if (!response.data.data) {
+      toast.error('Invalid job data returned from server');
+      throw new Error('Invalid job data structure');
+    }
+    
     return response.data.data;
   } catch (error) {
-    toast.error('Failed to fetch job details');
+    toast.error('Failed to fetch job details: ' + (error.message || 'Unknown error'));
+    console.error('Error in getJob service:', error);
     throw error;
   }
 };
@@ -5880,10 +6806,27 @@ export const getJob = async (id) => {
  */
 export const createJob = async (jobData) => {
   try {
-    const response = await api.post('/jobs', jobData);
+    console.log('Creating new job with data:', jobData);
+    
+    // Clean up any potentially undefined values
+    const cleanJobData = { ...jobData };
+    
+    // Make sure location and organization are valid IDs
+    if (typeof cleanJobData.location === 'object' && cleanJobData.location?._id) {
+      cleanJobData.location = cleanJobData.location._id;
+    }
+    
+    if (typeof cleanJobData.organization === 'object' && cleanJobData.organization?._id) {
+      cleanJobData.organization = cleanJobData.organization._id;
+    }
+    
+    const response = await api.post('/jobs', cleanJobData);
+    console.log('Create job response:', response.data);
     toast.success('Job created successfully');
     return response.data.data;
   } catch (error) {
+    console.error('Error creating job:', error);
+    console.error('Error response:', error.response?.data);
     const errorMessage = error.response?.data?.error || 'Failed to create job';
     toast.error(errorMessage);
     throw error;
@@ -5898,10 +6841,28 @@ export const createJob = async (jobData) => {
  */
 export const updateJob = async (id, jobData) => {
   try {
-    const response = await api.put(`/jobs/${id}`, jobData);
+    console.log('Updating job with ID:', id);
+    console.log('Job data being sent:', jobData);
+    
+    // Clean up any potentially undefined values that might be causing issues
+    const cleanJobData = { ...jobData };
+    
+    // Make sure location and organization are valid IDs
+    if (typeof cleanJobData.location === 'object' && cleanJobData.location?._id) {
+      cleanJobData.location = cleanJobData.location._id;
+    }
+    
+    if (typeof cleanJobData.organization === 'object' && cleanJobData.organization?._id) {
+      cleanJobData.organization = cleanJobData.organization._id;
+    }
+    
+    const response = await api.put(`/jobs/${id}`, cleanJobData);
+    console.log('Update job response:', response.data);
     toast.success('Job updated successfully');
     return response.data.data;
   } catch (error) {
+    console.error('Error updating job:', error);
+    console.error('Error response:', error.response?.data);
     const errorMessage = error.response?.data?.error || 'Failed to update job';
     toast.error(errorMessage);
     throw error;
@@ -6181,6 +7142,93 @@ export const extractGpsFromImage = async (imageFile) => {
     return response.data.data;
   } catch (error) {
     toast.error('Failed to extract GPS data from image');
+    throw error;
+  }
+};
+```
+
+# frontend\src\services\organizationService.js
+
+```js
+// # frontend/src/services/organizationService.js
+import api from './api';
+import { toast } from 'react-toastify';
+
+/**
+ * Get all organizations
+ * @returns {Promise<Array>} List of organizations
+ */
+export const getOrganizations = async () => {
+  try {
+    const response = await api.get('/organizations');
+    return response.data.data;
+  } catch (error) {
+    toast.error('Failed to fetch organizations');
+    throw error;
+  }
+};
+
+/**
+ * Get single organization by ID
+ * @param {string} id - Organization ID
+ * @returns {Promise<Object>} Organization data
+ */
+export const getOrganization = async (id) => {
+  try {
+    const response = await api.get(`/organizations/${id}`);
+    return response.data.data;
+  } catch (error) {
+    toast.error('Failed to fetch organization details');
+    throw error;
+  }
+};
+
+/**
+ * Create new organization
+ * @param {Object} organizationData - Organization data
+ * @returns {Promise<Object>} Created organization
+ */
+export const createOrganization = async (organizationData) => {
+  try {
+    const response = await api.post('/organizations', organizationData);
+    toast.success('Organization created successfully');
+    return response.data.data;
+  } catch (error) {
+    const errorMessage = error.response?.data?.error || 'Failed to create organization';
+    toast.error(errorMessage);
+    throw error;
+  }
+};
+
+/**
+ * Update existing organization
+ * @param {string} id - Organization ID
+ * @param {Object} organizationData - Organization data
+ * @returns {Promise<Object>} Updated organization
+ */
+export const updateOrganization = async (id, organizationData) => {
+  try {
+    const response = await api.put(`/organizations/${id}`, organizationData);
+    toast.success('Organization updated successfully');
+    return response.data.data;
+  } catch (error) {
+    const errorMessage = error.response?.data?.error || 'Failed to update organization';
+    toast.error(errorMessage);
+    throw error;
+  }
+};
+
+/**
+ * Delete organization
+ * @param {string} id - Organization ID
+ * @returns {Promise<void>}
+ */
+export const deleteOrganization = async (id) => {
+  try {
+    await api.delete(`/organizations/${id}`);
+    toast.success('Organization deleted successfully');
+  } catch (error) {
+    toast.error('Failed to delete organization');
     throw error;
   }
 };

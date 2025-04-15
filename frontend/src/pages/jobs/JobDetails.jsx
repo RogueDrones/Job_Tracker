@@ -121,17 +121,6 @@ const JobDetails = () => {
     return `${hours}h ${mins}m`;
   };
   
-  const formatDateTime = (dateString) => {
-    const options = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    };
-    return new Date(dateString).toLocaleString(undefined, options);
-  };
-  
   if (loading) {
     return <div className="loading">Loading job details...</div>;
   }
@@ -154,7 +143,7 @@ const JobDetails = () => {
         <h1 style={jobDetailsStyles.title}>{job.title}</h1>
         
         <div style={jobDetailsStyles.actions}>
-          <Link to={`/jobs/${id}/edit`} className="btn-secondary">
+          <Link to={`/jobs/edit/${id}`} className="btn-secondary">
             Edit Job
           </Link>
           <button onClick={handleDelete} className="btn-primary" style={{ backgroundColor: '#f44336' }}>
@@ -202,23 +191,33 @@ const JobDetails = () => {
         </div>
         
         <div style={jobDetailsStyles.card}>
-          <h2>Location Information</h2>
+          <h2>Organization & Location</h2>
+          
+          {job.organization && (
+            <div style={jobDetailsStyles.infoItem}>
+              <div style={jobDetailsStyles.infoLabel}>Organization</div>
+              <div style={jobDetailsStyles.infoValue}>
+                {job.organization.name}
+              </div>
+              {job.organization.description && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                  {job.organization.description}
+                </div>
+              )}
+            </div>
+          )}
           
           <div style={jobDetailsStyles.infoItem}>
-            <div style={jobDetailsStyles.infoLabel}>Location Name</div>
+            <div style={jobDetailsStyles.infoLabel}>Location</div>
             <div style={jobDetailsStyles.infoValue}>
               {job.location.name}
             </div>
-          </div>
-          
-          {job.location.address && (
-            <div style={jobDetailsStyles.infoItem}>
-              <div style={jobDetailsStyles.infoLabel}>Address</div>
-              <div style={jobDetailsStyles.infoValue}>
+            {job.location.address && (
+              <div style={{ fontSize: '0.9rem' }}>
                 {job.location.address}
               </div>
-            </div>
-          )}
+            )}
+          </div>
           
           <div>
             <Link to={`/locations/${job.location._id}`} className="btn-text">

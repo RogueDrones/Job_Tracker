@@ -88,20 +88,77 @@ const Dashboard = () => {
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
-        <h1>TFG Job Tracker Dashboard</h1>
+        <h1>Job Tracker Dashboard</h1>
         <div className="dashboard-actions">
-          <button onClick={handleRefresh} className="btn-secondary" style={{ marginLeft: "200px" }}>
+          <button 
+            onClick={handleRefresh} 
+            className="btn-secondary" 
+            style={{ 
+              backgroundColor: '#2196f3',
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px'
+            }}
+          >
             Refresh Data
           </button>
           <button 
             onClick={() => setShowExportDialog(true)} 
             className="btn-secondary"
-            style={{ backgroundColor: '#4a148c' }}
+            style={{ 
+              backgroundColor: '#4a148c', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px'
+            }}
           >
             Export Data
           </button>
-          <Link to="/jobs/new" className="btn-primary">Add New Job</Link>
-          <Link to="/locations/new" className="btn-secondary">Add New Location</Link>
+          <Link 
+            to="/jobs/new" 
+            className="btn-primary" 
+            style={{ 
+              backgroundColor: '#4caf50', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            Add New Job
+          </Link>
+          <Link 
+            to="/locations/new" 
+            className="btn-secondary" 
+            style={{ 
+              backgroundColor: '#2196f3', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            Add New Location
+          </Link>
+          <Link 
+            to="/organizations/new" 
+            className="btn-secondary" 
+            style={{ 
+              backgroundColor: '#fb8c00', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            Add New Organization
+          </Link>
         </div>
       </div>
 

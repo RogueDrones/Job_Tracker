@@ -106,15 +106,6 @@ const jobsListStyles = {
     borderRadius: '4px',
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
   },
-  filterLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem'
-  },
-  filterRight: {
-    display: 'flex',
-    alignItems: 'center',
-  }
 };
 
 const JobsList = () => {
@@ -315,7 +306,7 @@ const JobsList = () => {
                   View Details
                 </Link>
                 <div>
-                  <Link to={`/jobs/${job._id}/edit`} className="btn-text" style={{ marginRight: '0.5rem' }}>
+                  <Link to={`/jobs/edit/${job._id}`} className="btn-text" style={{ marginRight: '0.5rem' }}>
                     Edit
                   </Link>
                   <button 

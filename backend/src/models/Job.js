@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const JobSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: true,
+    required: [true, 'Please add a job title'],
     trim: true
   },
   description: {
@@ -26,6 +26,11 @@ const JobSchema = new mongoose.Schema({
   },
   duration: {
     type: Number,  // Duration in minutes
+    required: true
+  },
+  organization: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
     required: true
   },
   location: {
@@ -58,10 +63,14 @@ const JobSchema = new mongoose.Schema({
 
 // Calculate duration before saving
 JobSchema.pre('save', function(next) {
+  // Update duration if start and end times are available
   if (this.startTime && this.endTime) {
     this.duration = Math.round((this.endTime - this.startTime) / (1000 * 60));
   }
+  
+  // Update the updatedAt timestamp
   this.updatedAt = Date.now();
+  
   next();
 });
 
