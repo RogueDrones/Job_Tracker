@@ -14,15 +14,42 @@ const JobSchema = new mongoose.Schema({
   date: {
     type: Date,
     required: true,
-    default: Date.now
+    get: function(date) {
+      // Convert UTC to NZ time for display
+      if (date) {
+        const nzOffset = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
+        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    },
+    default: function() {
+      // Set default date in NZ timezone
+      const now = new Date();
+      const nzOffset = 12;
+      return new Date(now.getTime() + (nzOffset * 60 * 60 * 1000));
+    }
   },
   startTime: {
     type: Date,
-    required: true
+    required: true,
+    get: function(date) {
+      if (date) {
+        const nzOffset = 12;
+        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    }
   },
   endTime: {
     type: Date,
-    required: true
+    required: true,
+    get: function(date) {
+      if (date) {
+        const nzOffset = 12;
+        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    }
   },
   duration: {
     type: Number,  // Duration in minutes
@@ -59,6 +86,9 @@ const JobSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  timestamps: true,
+  toJSON: { getters: true }
 });
 
 // Calculate duration before saving

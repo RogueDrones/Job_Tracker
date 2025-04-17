@@ -7,6 +7,14 @@ const ErrorResponse = require('../utils/errorResponse');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
 
+// Set NZ timezone offset
+const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
+
+const adjustToNZTimezone = (date) => {
+  if (!date) return date;
+  return new Date(new Date(date).getTime() - (NZ_OFFSET * 60 * 60 * 1000));
+};
+
 /**
  * @desc    Get all jobs
  * @route   GET /api/jobs
@@ -83,6 +91,17 @@ exports.createJob = asyncHandler(async (req, res, next) => {
   }
   if (organization.user.toString() !== req.user.id) {
     return next(new ErrorResponse(`User not authorized to use this organization`, 401));
+  }
+
+  // Adjust dates from NZ timezone to UTC for storage
+  if (req.body.date) {
+    req.body.date = adjustToNZTimezone(req.body.date);
+  }
+  if (req.body.startTime) {
+    req.body.startTime = adjustToNZTimezone(req.body.startTime);
+  }
+  if (req.body.endTime) {
+    req.body.endTime = adjustToNZTimezone(req.body.endTime);
   }
   
   // Calculate duration if not provided but start and end times are available
@@ -161,6 +180,17 @@ exports.updateJob = asyncHandler(async (req, res, next) => {
       console.error('Error validating organization:', err);
       return next(new ErrorResponse(`Invalid organization ID: ${req.body.organization}`, 400));
     }
+  }
+
+  // Adjust dates from NZ timezone to UTC for storage
+  if (req.body.date) {
+    req.body.date = adjustToNZTimezone(req.body.date);
+  }
+  if (req.body.startTime) {
+    req.body.startTime = adjustToNZTimezone(req.body.startTime);
+  }
+  if (req.body.endTime) {
+    req.body.endTime = adjustToNZTimezone(req.body.endTime);
   }
   
   // Calculate duration if not provided but start and end times were updated

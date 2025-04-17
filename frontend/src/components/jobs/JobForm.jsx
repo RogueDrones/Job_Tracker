@@ -6,6 +6,8 @@ import { getOrganizations } from '../../services/organizationService';
 import { createJob, updateJob, getJob } from '../../services/jobService';
 import './JobForm.css';
 
+const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
+
 const JobForm = ({ isEditing = false }) => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -105,16 +107,18 @@ const JobForm = ({ isEditing = false }) => {
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
 
-      // Convert date and times to proper datetime format
+      // Convert date and times to proper datetime format in NZ timezone
       const combineDateTime = (date, time) => {
         const [hours, minutes] = time.split(':');
         const dateTime = new Date(date);
         dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+        // No need to adjust timezone here as the backend will handle it
         return dateTime.toISOString();
       };
 
       jobData.startTime = combineDateTime(formData.date, formData.startTime);
       jobData.endTime = combineDateTime(formData.date, formData.endTime);
+      jobData.date = new Date(formData.date).toISOString();
 
       // Submit the job data
       if (isEditing) {
