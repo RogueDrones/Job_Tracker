@@ -5,147 +5,150 @@
     "version": "0.2",
     "language": "en",
     "ignorePaths": [
-      "node_modules/**",
-      "dist/**",
-      "build/**",
-      ".git/**",
-      "package-lock.json",
-      "yarn.lock",
-      "public/assets/**",
-      "**/*.min.js",
-      "**/*.min.css",
-      "uploads/**"
+        "node_modules/**",
+        "dist/**",
+        "build/**",
+        ".git/**",
+        "package-lock.json",
+        "yarn.lock",
+        "public/assets/**",
+        "**/*.min.js",
+        "**/*.min.css",
+        "uploads/**"
     ],
     "words": [
-      "autofit",
-      "bcrypt",
-      "bcryptjs",
-      "browserslist",
-      "camelcase",
-      "cloudinary",
-      "CORS",
-      "cspell",
-      "datepicker",
-      "dateformat",
-      "datetime",
-      "dduwlcwot",
-      "doctype",
-      "dotenv",
-      "dsphere",
-      "dunedin",
-      "ERRORLEVEL",
-      "EXIF",
-      "exifdata",
-      "formdata",
-      "geospatial",
-      "jsonwebtoken",
-      "lcov",
-      "leaflet",
-      "locationid",
-      "locationid",
-      "lonlat",
-      "mapbox",
-      "mapboxgl",
-      "minlength",
-      "mongodb",
-      "multipart",
-      "nodemailer",
-      "nodemon",
-      "photodata",
-      "photoid",
-      "powershell",
-      "recharts",
-      "REPL",
-      "timeentry",
-      "timesheet",
-      "toastify",
-      "todos",
-      "unlink",
-      "userid",
-      "viewbox",
-      "yearmonth",
-      "useState",
-      "useEffect",
-      "useRef",
-      "useParams",
-      "useNavigate",
-      "asyncHandler",
-      "fieldname",
-      "mimetype",
-      "originalname",
-      "darkblue",
-      "lightblue",
-      "darkgreen",
-      "lightgreen",
-      "TFG",
-      "geopoint",
-      "coords",
-      "timestamped",
-      "datetime",
-      "latituderef",
-      "longituderef",
-      "lnglat",
-      "geocoding",
-      "timetracker",
-      "jobtracker",
-      "taskforce",
-      "middlewares",
-      "signin",
-      "signup",
-      "signout",
-      "authn",
-      "authz",
-      "gridfs",
-      "reqbody",
-      "resdata",
-      "msgbox",
-      "errormsg",
-      "successmsg",
-      "maxlength"
+        "appbar",
+        "asyncHandler",
+        "authn",
+        "authz",
+        "autofit",
+        "bcrypt",
+        "bcryptjs",
+        "browserslist",
+        "camelcase",
+        "cloudinary",
+        "coords",
+        "CORS",
+        "cspell",
+        "darkblue",
+        "darkgreen",
+        "dateformat",
+        "datepicker",
+        "datetime",
+        "dduwlcwot",
+        "doctype",
+        "dotenv",
+        "dsphere",
+        "dunedin",
+        "ERRORLEVEL",
+        "errormsg",
+        "EXIF",
+        "exifdata",
+        "fieldname",
+        "formdata",
+        "geocoding",
+        "geopoint",
+        "geospatial",
+        "gridfs",
+        "jobtracker",
+        "jsonwebtoken",
+        "latituderef",
+        "lcov",
+        "leaflet",
+        "lightblue",
+        "lightgreen",
+        "lnglat",
+        "locationid",
+        "longituderef",
+        "lonlat",
+        "mapbox",
+        "mapboxgl",
+        "maxlength",
+        "middlewares",
+        "mimetype",
+        "minlength",
+        "mongodb",
+        "msgbox",
+        "multipart",
+        "nodemailer",
+        "nodemon",
+        "officedocument",
+        "openxmlformats",
+        "originalname",
+        "photodata",
+        "photoid",
+        "powershell",
+        "recharts",
+        "REPL",
+        "reqbody",
+        "resdata",
+        "signin",
+        "signout",
+        "signup",
+        "spreadsheetml",
+        "successmsg",
+        "taskforce",
+        "TFG",
+        "timeentry",
+        "timesheet",
+        "timestamped",
+        "timetracker",
+        "toastify",
+        "todos",
+        "unlink",
+        "useEffect",
+        "useNavigate",
+        "useParams",
+        "useRef",
+        "userid",
+        "useState",
+        "viewbox",
+        "yearmonth"
     ],
     "flagWords": [],
     "ignoreWords": [],
     "patterns": [
-      {
-        "name": "hex-color",
-        "pattern": "/#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})/g"
-      },
-      {
-        "name": "environment-variables",
-        "pattern": "/\\b[A-Z][A-Z0-9_]*\\b/g"
-      }
+        {
+            "name": "hex-color",
+            "pattern": "/#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})/g"
+        },
+        {
+            "name": "environment-variables",
+            "pattern": "/\\b[A-Z][A-Z0-9_]*\\b/g"
+        }
     ],
     "dictionaries": [
-      "en_US",
-      "html",
-      "css",
-      "typescript",
-      "node",
-      "npm",
-      "fullstack"
+        "en_US",
+        "html",
+        "css",
+        "typescript",
+        "node",
+        "npm",
+        "fullstack"
     ],
     "dictionaryDefinitions": [
-      {
-        "name": "fullstack",
-        "path": "./fullstack-dictionary.txt",
-        "addWords": true
-      }
+        {
+            "name": "fullstack",
+            "path": "./fullstack-dictionary.txt",
+            "addWords": true
+        }
     ],
     "languageSettings": [
-      {
-        "languageId": "javascript,typescript,javascriptreact,typescriptreact",
-        "ignoreRegExpList": [
-          "import\\s+.*?\\s+from\\s+['\"].*?['\"]",
-          "require\\(['\"].*?['\"]\\)",
-          "//.*"
-        ]
-      },
-      {
-        "languageId": "markdown,plaintext",
-        "caseSensitive": false
-      }
+        {
+            "languageId": "javascript,typescript,javascriptreact,typescriptreact",
+            "ignoreRegExpList": [
+                "import\\s+.*?\\s+from\\s+['\"].*?['\"]",
+                "require\\(['\"].*?['\"]\\)",
+                "//.*"
+            ]
+        },
+        {
+            "languageId": "markdown,plaintext",
+            "caseSensitive": false
+        }
     ]
-  }
+}
+
 ```
 
 # .gitignore
@@ -909,7 +912,7 @@ exports.getJobStatistics = asyncHandler(async (req, res, next) => {
     .select('title date duration location')
     .populate('location', 'name')
     .sort('-date')
-    .limit(6);
+    .limit(8);
   
   // Calculate monthly stats
   const monthlyStats = await Job.aggregate([
@@ -2394,11 +2397,19 @@ This is a binary file of the type: Image
 
 This is a binary file of the type: Image
 
+# backend\uploads\75c692f2315b95228488bc1160a00f65-1744846578734.jpg
+
+This is a binary file of the type: Image
+
 # backend\uploads\79a11704bbf708eef8ff68fb006673a9-1743563063523.jpg
 
 This is a binary file of the type: Image
 
 # backend\uploads\e52785fb0ad79ff62191bed67b8f2b64-1743563138146.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\ed0adc3533a6333377380bda96b51bc1-1744763731310.jpg
 
 This is a binary file of the type: Image
 
@@ -2916,20 +2927,77 @@ const Dashboard = () => {
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
-        <h1>TFG Job Tracker Dashboard</h1>
+        <h1>Job Tracker Dashboard</h1>
         <div className="dashboard-actions">
-          <button onClick={handleRefresh} className="btn-secondary" style={{ marginLeft: "200px" }}>
+          <button 
+            onClick={handleRefresh} 
+            className="btn-secondary" 
+            style={{ 
+              backgroundColor: '#2196f3',
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px'
+            }}
+          >
             Refresh Data
           </button>
           <button 
             onClick={() => setShowExportDialog(true)} 
             className="btn-secondary"
-            style={{ backgroundColor: '#4a148c' }}
+            style={{ 
+              backgroundColor: '#4a148c', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px'
+            }}
           >
             Export Data
           </button>
-          <Link to="/jobs/new" className="btn-primary">Add New Job</Link>
-          <Link to="/locations/new" className="btn-secondary">Add New Location</Link>
+          <Link 
+            to="/jobs/new" 
+            className="btn-primary" 
+            style={{ 
+              backgroundColor: '#4caf50', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            Add New Job
+          </Link>
+          <Link 
+            to="/locations/new" 
+            className="btn-secondary" 
+            style={{ 
+              backgroundColor: '#2196f3', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            Add New Location
+          </Link>
+          <Link 
+            to="/organizations/new" 
+            className="btn-secondary" 
+            style={{ 
+              backgroundColor: '#fb8c00', 
+              minWidth: '150px',
+              height: '55px',
+              margin: '0 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            Add New Organization
+          </Link>
         </div>
       </div>
 
@@ -3714,7 +3782,7 @@ const Footer = () => {
     <footer className="footer">
       <div className="footer-content">
         <div className="footer-logo">
-          <h3>TFG Job Tracker</h3>
+          <h3>Volunteer Job Tracker</h3>
           <p>Track your volunteer work efficiently</p>
         </div>
         
@@ -3727,7 +3795,7 @@ const Footer = () => {
         </div>
         
         <div className="footer-legal">
-          <p>&copy; {currentYear} Task Force Green Job Tracker</p>
+          <p>&copy; {currentYear} Volunteer Job Tracker</p>
           <p>Dunedin, New Zealand</p>
         </div>
       </div>
@@ -3879,9 +3947,13 @@ const Header = () => {
               fontWeight: 700,
               color: 'inherit',
               textDecoration: 'none',
+              '&:hover': {
+                color: 'white',  // Keep text white on hover
+                textDecoration: 'none'  // Prevent underline on hover
+              }
             }}
           >
-            Task Force Green
+            Volunteer Job Tracker
           </Typography>
 
           <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' } }}>
@@ -3949,7 +4021,15 @@ const Header = () => {
                 key={page.name}
                 component={Link}
                 to={page.path}
-                sx={{ my: 2, color: 'white', display: 'block' }}
+                sx={{ 
+                  my: 2, 
+                  color: 'white', 
+                  display: 'block',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    color: 'white'  // Keep text white on hover
+                  }
+                }}
               >
                 {page.name}
               </Button>
@@ -5248,15 +5328,6 @@ const jobsListStyles = {
     borderRadius: '4px',
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
   },
-  filterLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem'
-  },
-  filterRight: {
-    display: 'flex',
-    alignItems: 'center',
-  }
 };
 
 const JobsList = () => {
@@ -5457,7 +5528,7 @@ const JobsList = () => {
                   View Details
                 </Link>
                 <div>
-                  <Link to={`/jobs/${job._id}/edit`} className="btn-text" style={{ marginRight: '0.5rem' }}>
+                  <Link to={`/jobs/edit/${job._id}`} className="btn-text" style={{ marginRight: '0.5rem' }}>
                     Edit
                   </Link>
                   <button 
@@ -6905,7 +6976,7 @@ export const getJobsByLocation = async (locationId) => {
  */
 export const fetchJobStatistics = async () => {
   try {
-    const response = await api.get('/jobs/statistics');
+    const response = await api.get('/jobs/statistics?recentCount=8');
     
     // Add this detailed logging
     console.log('Raw statistics API response:', response);

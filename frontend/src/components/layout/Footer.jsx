@@ -9,7 +9,7 @@ const Footer = () => {
     <footer className="footer">
       <div className="footer-content">
         <div className="footer-logo">
-          <h3>TFG Job Tracker</h3>
+          <h3>Volunteer Job Tracker</h3>
           <p>Track your volunteer work efficiently</p>
         </div>
         
@@ -22,7 +22,7 @@ const Footer = () => {
         </div>
         
         <div className="footer-legal">
-          <p>&copy; {currentYear} Task Force Green Job Tracker</p>
+          <p>&copy; {currentYear} Volunteer Job Tracker</p>
           <p>Dunedin, New Zealand</p>
         </div>
       </div>
