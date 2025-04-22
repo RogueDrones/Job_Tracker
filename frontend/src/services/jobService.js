@@ -161,8 +161,6 @@ export const fetchJobStatistics = async () => {
   }
 };
 
-// # frontend/src/services/jobService.js - Add this new function to the existing file
-
 /**
  * Export jobs data as Excel file
  * @param {Object} filters - Filter criteria
@@ -218,6 +216,43 @@ export const exportJobsData = async (filters = {}) => {
     return response.data;
   } catch (error) {
     toast.error('Failed to export data');
+    throw error;
+  }
+};
+
+/**
+ * Upload photo to job
+ * @param {string} id - Job ID
+ * @param {FormData} formData - Form data with photo and caption
+ * @returns {Promise<Object>} Updated job with new photo
+ */
+export const uploadJobPhoto = async (id, formData) => {
+  try {
+    const response = await api.post(`/jobs/${id}/photos`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    toast.success('Photo uploaded successfully');
+    return response.data.data;
+  } catch (error) {
+    toast.error('Failed to upload photo');
+    throw error;
+  }
+};
+
+/**
+ * Delete photo from job
+ * @param {string} jobId - Job ID
+ * @param {string} photoId - Photo ID
+ * @returns {Promise<void>}
+ */
+export const deleteJobPhoto = async (jobId, photoId) => {
+  try {
+    await api.delete(`/jobs/${jobId}/photos/${photoId}`);
+    toast.success('Photo deleted successfully');
+  } catch (error) {
+    toast.error('Failed to delete photo');
     throw error;
   }
 };

@@ -43,6 +43,19 @@ const JobSchema = new mongoose.Schema({
     type: Number,  // Duration in minutes
     required: true
   },
+  photos: [{
+    url: {
+      type: String,
+      trim: true
+    },
+    caption: {
+      type: String,
+      trim: true
+    },
+    takenAt: {
+      type: Date
+    }
+  }],
   organization: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',

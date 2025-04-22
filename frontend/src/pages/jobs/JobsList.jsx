@@ -65,6 +65,13 @@ const jobsListStyles = {
     display: 'flex',
     flexDirection: 'column'
   },
+  jobPhoto: {
+    width: '100%',
+    height: '150px',
+    objectFit: 'cover',
+    borderRadius: '4px',
+    marginBottom: '1rem'
+  },
   jobTitle: {
     fontSize: '1.2rem',
     fontWeight: 'bold',
@@ -271,6 +278,14 @@ const JobsList = () => {
         <div style={jobsListStyles.jobsGrid}>
           {filteredJobs.map(job => (
             <div key={job._id} style={jobsListStyles.jobCard}>
+              {job.photos && job.photos.length > 0 && (
+                <img 
+                  src={job.photos[0].url} 
+                  alt={job.title}
+                  style={jobsListStyles.jobPhoto}
+                />
+              )}
+              
               <div style={jobsListStyles.jobTitle}>{job.title}</div>
               
               <div style={jobsListStyles.jobMeta}>

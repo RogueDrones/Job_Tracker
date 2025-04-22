@@ -10,12 +10,15 @@ const {
   deleteJob,
   getJobsByLocation,
   getJobStatistics,
-  exportJobs // Add this new controller function
+  exportJobs,
+  uploadJobPhoto,
+  deleteJobPhoto
 } = require('../controllers/jobs');
+const { upload } = require('../middleware/fileUpload');
 
 // Important: Statistics and export routes must be defined BEFORE any routes with params
 router.get('/statistics', protect, getJobStatistics);
-router.get('/export', protect, exportJobs); // Add this new route
+router.get('/export', protect, exportJobs);
 
 // Get jobs by location
 router.get('/location/:locationId', protect, getJobsByLocation);
@@ -29,5 +32,9 @@ router.route('/:id')
   .get(protect, getJob)
   .put(protect, updateJob)
   .delete(protect, deleteJob);
+
+// Photo-related routes
+router.post('/:id/photos', protect, upload, uploadJobPhoto);
+router.delete('/:id/photos/:photoId', protect, deleteJobPhoto);
 
 module.exports = router;

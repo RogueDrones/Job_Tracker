@@ -1,7 +1,7 @@
 // # frontend/src/pages/jobs/JobDetails.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getJob, deleteJob } from '../../services/jobService';
+import { getJob, deleteJob, uploadJobPhoto, deleteJobPhoto } from '../../services/jobService';
 import LocationMap from '../../components/map/LocationMap';
 import { formatNZDate } from '../../utils/dateUtils';
 
@@ -77,6 +77,60 @@ const jobDetailsStyles = {
   },
   mapContainer: {
     marginTop: '2rem'
+  },
+  photosSection: {
+    marginBottom: '2rem'
+  },
+  photoGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+    gap: '1rem',
+    marginTop: '1rem'
+  },
+  photoCard: {
+    position: 'relative',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+  },
+  photo: {
+    width: '100%',
+    height: '200px',
+    objectFit: 'cover',
+    display: 'block'
+  },
+  photoCaption: {
+    position: 'absolute',
+    bottom: '0',
+    left: '0',
+    right: '0',
+    background: 'rgba(0, 0, 0, 0.7)',
+    color: 'white',
+    padding: '0.5rem',
+    fontSize: '0.9rem'
+  },
+  photoActions: {
+    position: 'absolute',
+    top: '0.5rem',
+    right: '0.5rem'
+  },
+  deletePhotoBtn: {
+    background: 'rgba(0, 0, 0, 0.7)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    width: '30px',
+    height: '30px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer'
+  },
+  uploadSection: {
+    marginTop: '1rem',
+    padding: '1rem',
+    background: '#f5f5f5',
+    borderRadius: '4px'
   }
 };
 
@@ -86,7 +140,10 @@ const JobDetails = () => {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+
   useEffect(() => {
     const loadJob = async () => {
       try {
@@ -103,7 +160,7 @@ const JobDetails = () => {
     
     loadJob();
   }, [id]);
-  
+
   const handleDelete = async () => {
     if (window.confirm('Are you sure you want to delete this job?')) {
       try {
@@ -114,13 +171,73 @@ const JobDetails = () => {
       }
     }
   };
-  
+
+  const handlePhotoFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setPhotoFile(e.target.files[0]);
+    }
+  };
+
+  const handlePhotoUpload = async (e) => {
+    e.preventDefault();
+    
+    if (!photoFile) {
+      alert('Please select a photo to upload');
+      return;
+    }
+    
+    try {
+      setPhotoUploading(true);
+      
+      const formData = new FormData();
+      formData.append('photo', photoFile);
+      
+      if (photoCaption) {
+        formData.append('caption', photoCaption);
+      }
+      
+      const updatedPhoto = await uploadJobPhoto(id, formData);
+      
+      // Update job state with new photo
+      setJob(prevJob => ({
+        ...prevJob,
+        photos: [...(prevJob.photos || []), updatedPhoto]
+      }));
+      
+      // Reset form
+      setPhotoFile(null);
+      setPhotoCaption('');
+      document.getElementById('photo-upload').value = '';
+      
+      setPhotoUploading(false);
+    } catch (err) {
+      setPhotoUploading(false);
+      console.error('Error uploading photo:', err);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId) => {
+    if (window.confirm('Are you sure you want to delete this photo?')) {
+      try {
+        await deleteJobPhoto(id, photoId);
+        
+        // Remove photo from state
+        setJob(prevJob => ({
+          ...prevJob,
+          photos: prevJob.photos.filter(photo => photo._id !== photoId)
+        }));
+      } catch (err) {
+        console.error('Error deleting photo:', err);
+      }
+    }
+  };
+
   const formatDuration = (minutes) => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
   };
-  
+
   if (loading) {
     return <div className="loading">Loading job details...</div>;
   }
@@ -224,6 +341,70 @@ const JobDetails = () => {
               View Location Details
             </Link>
           </div>
+        </div>
+      </div>
+      
+      {/* Photos section */}
+      <div style={jobDetailsStyles.photosSection}>
+        <h2>Photos</h2>
+        
+        {job.photos && job.photos.length > 0 ? (
+          <div style={jobDetailsStyles.photoGrid}>
+            {job.photos.map(photo => (
+              <div key={photo._id} style={jobDetailsStyles.photoCard}>
+                <img src={photo.url} alt={photo.caption || 'Job'} style={jobDetailsStyles.photo} />
+                
+                {photo.caption && (
+                  <div style={jobDetailsStyles.photoCaption}>{photo.caption}</div>
+                )}
+                
+                <div style={jobDetailsStyles.photoActions}>
+                  <button 
+                    style={jobDetailsStyles.deletePhotoBtn}
+                    onClick={() => handleDeletePhoto(photo._id)}
+                    title="Delete photo"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={jobDetailsStyles.emptyMessage}>
+            No photos available for this job.
+          </div>
+        )}
+        
+        {/* Photo upload form */}
+        <div style={jobDetailsStyles.uploadSection}>
+          <h3>Upload New Photo</h3>
+          <form onSubmit={handlePhotoUpload}>
+            <div className="form-group">
+              <label htmlFor="photo-upload">Select Photo</label>
+              <input
+                type="file"
+                id="photo-upload"
+                accept="image/*"
+                onChange={handlePhotoFileChange}
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="photo-caption">Caption (optional)</label>
+              <input
+                type="text"
+                id="photo-caption"
+                value={photoCaption}
+                onChange={(e) => setPhotoCaption(e.target.value)}
+              />
+            </div>
+            
+            <button type="submit" className="btn-primary" disabled={photoUploading}>
+              {photoUploading ? 'Uploading...' : 'Upload Photo'}
+            </button>
+          </form>
         </div>
       </div>
       

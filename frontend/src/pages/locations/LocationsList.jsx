@@ -232,7 +232,7 @@ const LocationsList = () => {
                   View Details
                 </Link>
                 <div>
-                  <Link to={`/locations/${location._id}/edit`} className="btn-text" style={{ marginRight: '0.5rem' }}>
+                  <Link to={`/locations/edit/${location._id}`} className="btn-text" style={{ marginRight: '0.5rem' }}>
                     Edit
                   </Link>
                   <button 

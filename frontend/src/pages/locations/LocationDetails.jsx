@@ -276,7 +276,7 @@ const LocationDetails = () => {
         <h1 style={locationDetailsStyles.title}>{location.name}</h1>
         
         <div style={locationDetailsStyles.actions}>
-          <Link to={`/locations/${id}/edit`} className="btn-secondary">
+          <Link to={`/locations/edit/${id}`} className="btn-secondary">
             Edit Location
           </Link>
           <button 

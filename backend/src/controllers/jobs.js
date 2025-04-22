@@ -6,6 +6,36 @@ const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
+const { processUploadedImage } = require('../utils/exifExtractor');
+const cloudinary = require('../config/cloudinary');
+const fs = require('fs');
+const sharp = require('sharp');
+const path = require('path');
+
+// Helper function to safely delete a file (handles Windows file locking issues)
+const safeDeleteFile = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      console.log(`Successfully deleted: ${filePath}`);
+      return true;
+    } catch (error) {
+      console.error(`Error deleting file ${filePath}:`, error.message);
+      // Schedule file for deletion after a delay (Windows workaround)
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`Delayed deletion successful: ${filePath}`);
+          }
+        } catch (delayedError) {
+          console.error(`Delayed deletion failed for ${filePath}:`, delayedError.message);
+        }
+      }, 1000);
+      return false;
+    }
+  }
+};
 
 // Set NZ timezone offset
 const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
@@ -628,4 +658,227 @@ exports.exportJobs = asyncHandler(async (req, res, next) => {
     console.error('Export error:', error);
     return next(new ErrorResponse('Error generating export', 500));
   }
+});
+
+/**
+ * @desc    Upload photo to job
+ * @route   POST /api/jobs/:id/photos
+ * @access  Private
+ */
+exports.uploadJobPhoto = asyncHandler(async (req, res, next) => {
+  // Variables to track files
+  let fileUploaded = false;
+  let cloudinaryResult = null;
+  let compressedFilePath = null;
+
+  try {
+    const job = await Job.findById(req.params.id);
+    
+    if (!job) {
+      if (req.file) {
+        safeDeleteFile(req.file.path);
+      }
+      return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+    }
+    
+    // Check user owns the job
+    if (job.user.toString() !== req.user.id) {
+      if (req.file) {
+        safeDeleteFile(req.file.path);
+      }
+      return next(new ErrorResponse(`User not authorized to update this job`, 401));
+    }
+    
+    if (!req.file) {
+      return next(new ErrorResponse(`Please upload a file`, 400));
+    }
+    
+    fileUploaded = true;
+    
+    // Extract EXIF data from image for timestamp
+    let exifData = null;
+    try {
+      exifData = processUploadedImage(req.file);
+      console.log('EXIF data extracted:', exifData);
+    } catch (exifError) {
+      console.error('Error extracting EXIF data:', exifError);
+      // Continue with upload even if EXIF extraction fails
+    }
+    
+    // Compress the image before uploading to Cloudinary
+    try {
+      const originalFilePath = req.file.path;
+      const fileExt = path.extname(originalFilePath);
+      compressedFilePath = `${originalFilePath.replace(fileExt, '')}-compressed${fileExt}`;
+      
+      console.log(`Compressing image from ${originalFilePath} to ${compressedFilePath}`);
+      
+      // First compression attempt - moderate quality
+      await sharp(originalFilePath)
+        .resize(1800, 1800, { fit: 'inside' })
+        .jpeg({ quality: 75 })
+        .toFile(compressedFilePath);
+      
+      // Check if file is still too large (>10MB)
+      const stats = fs.statSync(compressedFilePath);
+      console.log(`Compressed file size: ${stats.size} bytes (${Math.round(stats.size/1024/1024 * 100) / 100}MB)`);
+      
+      if (stats.size > 10 * 1024 * 1024) {
+        console.log('File still too large, applying more compression...');
+        
+        const moreCompressedPath = `${originalFilePath.replace(fileExt, '')}-compressed-more${fileExt}`;
+        
+        await sharp(originalFilePath)
+          .resize(1200, 1200, { fit: 'inside' })
+          .jpeg({ quality: 60 })
+          .toFile(moreCompressedPath);
+        
+        // Delete the previous compressed file
+        safeDeleteFile(compressedFilePath);
+        
+        // Use the more compressed file
+        compressedFilePath = moreCompressedPath;
+        
+        const newStats = fs.statSync(compressedFilePath);
+        console.log(`More compressed file size: ${newStats.size} bytes (${Math.round(newStats.size/1024/1024 * 100) / 100}MB)`);
+        
+        if (newStats.size > 10 * 1024 * 1024) {
+          console.log('Still too large, using extreme compression...');
+          
+          const extremeCompressedPath = `${originalFilePath.replace(fileExt, '')}-compressed-extreme${fileExt}`;
+          
+          await sharp(originalFilePath)
+            .resize(800, 800, { fit: 'inside' })
+            .jpeg({ quality: 40 })
+            .toFile(extremeCompressedPath);
+          
+          // Delete the previous compressed file
+          safeDeleteFile(compressedFilePath);
+          
+          // Use the extremely compressed file
+          compressedFilePath = extremeCompressedPath;
+          
+          const finalStats = fs.statSync(compressedFilePath);
+          console.log(`Extreme compressed file size: ${finalStats.size} bytes (${Math.round(finalStats.size/1024/1024 * 100) / 100}MB)`);
+        }
+      }
+    } catch (compressionError) {
+      console.error('Error compressing image:', compressionError);
+      // If compression fails, try to upload original file
+      compressedFilePath = req.file.path;
+    }
+    
+    // Upload to Cloudinary
+    try {
+      cloudinaryResult = await cloudinary.uploader.upload(compressedFilePath, {
+        folder: 'tfg-jobs'
+      });
+    } catch (cloudinaryError) {
+      console.error('Cloudinary upload error:', cloudinaryError);
+      
+      // Clean up files
+      if (req.file) {
+        safeDeleteFile(req.file.path);
+      }
+      
+      if (compressedFilePath && compressedFilePath !== req.file.path) {
+        safeDeleteFile(compressedFilePath);
+      }
+      
+      return next(new ErrorResponse(`Failed to upload image to cloud storage: ${cloudinaryError.message}`, 500));
+    }
+    
+    // Add photo to job
+    const photo = {
+      url: cloudinaryResult.secure_url,
+      caption: req.body.caption || '',
+      takenAt: exifData?.timestamp ? new Date(exifData.timestamp * 1000) : new Date()
+    };
+    
+    job.photos.push(photo);
+    await job.save();
+    
+    // Clean up files after everything is done
+    if (req.file) {
+      safeDeleteFile(req.file.path);
+    }
+    
+    if (compressedFilePath && compressedFilePath !== req.file.path) {
+      safeDeleteFile(compressedFilePath);
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: photo,
+      job: job
+    });
+  } catch (error) {
+    console.error('Upload error details:', error);
+    
+    // Clean up all files
+    if (req.file) {
+      safeDeleteFile(req.file.path);
+    }
+    
+    if (compressedFilePath && compressedFilePath !== req.file.path) {
+      safeDeleteFile(compressedFilePath);
+    }
+    
+    // If Cloudinary upload was successful but we had an error after that,
+    // try to remove the file from Cloudinary
+    if (cloudinaryResult) {
+      try {
+        await cloudinary.uploader.destroy(cloudinaryResult.public_id);
+      } catch (cloudError) {
+        console.error('Error removing file from Cloudinary:', cloudError);
+      }
+    }
+    
+    return next(new ErrorResponse(`Photo upload failed: ${error.message}`, 500));
+  }
+});
+
+/**
+ * @desc    Delete photo from job
+ * @route   DELETE /api/jobs/:id/photos/:photoId
+ * @access  Private
+ */
+exports.deleteJobPhoto = asyncHandler(async (req, res, next) => {
+  const job = await Job.findById(req.params.id);
+  
+  if (!job) {
+    return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the job
+  if (job.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to update this job`, 401));
+  }
+  
+  // Find photo in the array
+  const photoIndex = job.photos.findIndex(photo => photo._id.toString() === req.params.photoId);
+  
+  if (photoIndex === -1) {
+    return next(new ErrorResponse(`Photo not found with id of ${req.params.photoId}`, 404));
+  }
+  
+  // Delete from Cloudinary
+  if (job.photos[photoIndex].url) {
+    try {
+      const publicId = job.photos[photoIndex].url.split('/').pop().split('.')[0];
+      await cloudinary.uploader.destroy(publicId);
+    } catch (error) {
+      console.error('Error deleting photo from Cloudinary:', error);
+      // Continue with removal from database even if Cloudinary delete fails
+    }
+  }
+  
+  // Remove from array
+  job.photos.splice(photoIndex, 1);
+  await job.save();
+  
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
 });

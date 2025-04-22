@@ -3,10 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchLocations } from '../../services/locationService';
 import { getOrganizations } from '../../services/organizationService';
-import { createJob, updateJob, getJob } from '../../services/jobService';
+import { createJob, updateJob, getJob, uploadJobPhoto, deleteJobPhoto } from '../../services/jobService';
 import './JobForm.css';
-
-const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
 
 const JobForm = ({ isEditing = false }) => {
   const navigate = useNavigate();
@@ -20,8 +18,13 @@ const JobForm = ({ isEditing = false }) => {
     location: '',
     organization: '',
     tags: '',
-    notes: ''
+    notes: '',
+    photos: []
   });
+  
+  const [photo, setPhoto] = useState(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [locations, setLocations] = useState([]);
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -61,7 +64,6 @@ const JobForm = ({ isEditing = false }) => {
           const endTime = formatTime(jobData.endTime);
           
           // Handle location and organization IDs safely
-          // Check if location and organization are objects with _id or strings
           const locationId = jobData.location?._id || jobData.location || '';
           const organizationId = jobData.organization?._id || jobData.organization || '';
           
@@ -74,7 +76,8 @@ const JobForm = ({ isEditing = false }) => {
             location: locationId,
             organization: organizationId,
             tags: jobData.tags ? jobData.tags.join(', ') : '',
-            notes: jobData.notes || ''
+            notes: jobData.notes || '',
+            photos: jobData.photos || []
           });
         }
 
@@ -94,6 +97,66 @@ const JobForm = ({ isEditing = false }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handlePhotoChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setPhoto(e.target.files[0]);
+    }
+  };
+
+  const handlePhotoUpload = async (e) => {
+    e.preventDefault();
+    
+    if (!photo) {
+      alert('Please select a photo to upload');
+      return;
+    }
+    
+    try {
+      setPhotoUploading(true);
+      
+      const formDataObj = new FormData();
+      formDataObj.append('photo', photo);
+      
+      if (photoCaption) {
+        formDataObj.append('caption', photoCaption);
+      }
+      
+      const updatedPhoto = await uploadJobPhoto(id, formDataObj);
+      
+      // Update form data with new photo
+      setFormData(prev => ({
+        ...prev,
+        photos: [...(prev.photos || []), updatedPhoto]
+      }));
+      
+      // Reset photo form
+      setPhoto(null);
+      setPhotoCaption('');
+      document.getElementById('photo-upload').value = '';
+      
+      setPhotoUploading(false);
+    } catch (err) {
+      setPhotoUploading(false);
+      console.error('Error uploading photo:', err);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId) => {
+    if (window.confirm('Are you sure you want to delete this photo?')) {
+      try {
+        await deleteJobPhoto(id, photoId);
+        
+        // Remove photo from state
+        setFormData(prev => ({
+          ...prev,
+          photos: prev.photos.filter(photo => photo._id !== photoId)
+        }));
+      } catch (err) {
+        console.error('Error deleting photo:', err);
+      }
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -107,12 +170,11 @@ const JobForm = ({ isEditing = false }) => {
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
 
-      // Convert date and times to proper datetime format in NZ timezone
+      // Convert date and times to proper datetime format
       const combineDateTime = (date, time) => {
         const [hours, minutes] = time.split(':');
         const dateTime = new Date(date);
         dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
-        // No need to adjust timezone here as the backend will handle it
         return dateTime.toISOString();
       };
 
@@ -120,11 +182,24 @@ const JobForm = ({ isEditing = false }) => {
       jobData.endTime = combineDateTime(formData.date, formData.endTime);
       jobData.date = new Date(formData.date).toISOString();
 
+      let savedJob;
       // Submit the job data
       if (isEditing) {
-        await updateJob(id, jobData);
+        savedJob = await updateJob(id, jobData);
       } else {
-        await createJob(jobData);
+        savedJob = await createJob(jobData);
+        
+        // If a photo was selected for a new job, upload it
+        if (photo) {
+          const formDataObj = new FormData();
+          formDataObj.append('photo', photo);
+          
+          if (photoCaption) {
+            formDataObj.append('caption', photoCaption);
+          }
+          
+          await uploadJobPhoto(savedJob._id, formDataObj);
+        }
       }
 
       // Redirect back to jobs list
@@ -264,6 +339,94 @@ const JobForm = ({ isEditing = false }) => {
             onChange={handleChange}
           />
         </div>
+        
+        {isEditing && (
+          <div className="photo-management">
+            <h3>Photos</h3>
+            {formData.photos && formData.photos.length > 0 ? (
+              <div className="photo-grid">
+                {formData.photos.map(photo => (
+                  <div key={photo._id} className="photo-card">
+                    <img src={photo.url} alt={photo.caption || 'Job'} className="photo" />
+                    
+                    {photo.caption && (
+                      <div className="photo-caption">{photo.caption}</div>
+                    )}
+                    
+                    <div className="photo-actions">
+                      <button 
+                        type="button"
+                        className="delete-photo-btn"
+                        onClick={() => handleDeletePhoto(photo._id)}
+                        title="Delete photo"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No photos available for this job.</p>
+            )}
+            
+            <div className="upload-section">
+              <h4>Upload New Photo</h4>
+              <div className="form-group">
+                <label htmlFor="photo-upload">Select Photo</label>
+                <input
+                  type="file"
+                  id="photo-upload"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                />
+                
+                <div className="form-group">
+                  <label htmlFor="photo-caption">Caption (optional)</label>
+                  <input
+                    type="text"
+                    id="photo-caption"
+                    value={photoCaption}
+                    onChange={(e) => setPhotoCaption(e.target.value)}
+                  />
+                </div>
+                
+                <button 
+                  type="button" 
+                  onClick={handlePhotoUpload}
+                  className="btn-secondary"
+                  disabled={photoUploading || !photo}
+                >
+                  {photoUploading ? 'Uploading...' : 'Upload Photo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {!isEditing && (
+          <div className="form-group">
+            <label htmlFor="photo">Upload Photo (optional)</label>
+            <input
+              type="file"
+              id="photo"
+              name="photo"
+              accept="image/*"
+              onChange={handlePhotoChange}
+            />
+            
+            <div className="form-group">
+              <label htmlFor="photoCaption">Photo Caption (optional)</label>
+              <input
+                type="text"
+                id="photoCaption"
+                name="photoCaption"
+                value={photoCaption}
+                onChange={(e) => setPhotoCaption(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
         
         <div className="form-actions">
           <button 
