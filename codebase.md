@@ -193,6 +193,14 @@ yarn-error.log*
 !/backend/uploads/.gitkeep
 ```
 
+# .vscode\settings.json
+
+```json
+{
+    "postman.settings.dotenv-detection-notification-visibility": false
+}
+```
+
 # backend\check-db.js
 
 ```js
@@ -539,6 +547,14 @@ const ErrorResponse = require('../utils/errorResponse');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
 
+// Set NZ timezone offset
+const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
+
+const adjustToNZTimezone = (date) => {
+  if (!date) return date;
+  return new Date(new Date(date).getTime() - (NZ_OFFSET * 60 * 60 * 1000));
+};
+
 /**
  * @desc    Get all jobs
  * @route   GET /api/jobs
@@ -615,6 +631,17 @@ exports.createJob = asyncHandler(async (req, res, next) => {
   }
   if (organization.user.toString() !== req.user.id) {
     return next(new ErrorResponse(`User not authorized to use this organization`, 401));
+  }
+
+  // Adjust dates from NZ timezone to UTC for storage
+  if (req.body.date) {
+    req.body.date = adjustToNZTimezone(req.body.date);
+  }
+  if (req.body.startTime) {
+    req.body.startTime = adjustToNZTimezone(req.body.startTime);
+  }
+  if (req.body.endTime) {
+    req.body.endTime = adjustToNZTimezone(req.body.endTime);
   }
   
   // Calculate duration if not provided but start and end times are available
@@ -693,6 +720,17 @@ exports.updateJob = asyncHandler(async (req, res, next) => {
       console.error('Error validating organization:', err);
       return next(new ErrorResponse(`Invalid organization ID: ${req.body.organization}`, 400));
     }
+  }
+
+  // Adjust dates from NZ timezone to UTC for storage
+  if (req.body.date) {
+    req.body.date = adjustToNZTimezone(req.body.date);
+  }
+  if (req.body.startTime) {
+    req.body.startTime = adjustToNZTimezone(req.body.startTime);
+  }
+  if (req.body.endTime) {
+    req.body.endTime = adjustToNZTimezone(req.body.endTime);
   }
   
   // Calculate duration if not provided but start and end times were updated
@@ -1859,15 +1897,42 @@ const JobSchema = new mongoose.Schema({
   date: {
     type: Date,
     required: true,
-    default: Date.now
+    get: function(date) {
+      // Convert UTC to NZ time for display
+      if (date) {
+        const nzOffset = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
+        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    },
+    default: function() {
+      // Set default date in NZ timezone
+      const now = new Date();
+      const nzOffset = 12;
+      return new Date(now.getTime() + (nzOffset * 60 * 60 * 1000));
+    }
   },
   startTime: {
     type: Date,
-    required: true
+    required: true,
+    get: function(date) {
+      if (date) {
+        const nzOffset = 12;
+        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    }
   },
   endTime: {
     type: Date,
-    required: true
+    required: true,
+    get: function(date) {
+      if (date) {
+        const nzOffset = 12;
+        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    }
   },
   duration: {
     type: Number,  // Duration in minutes
@@ -1904,6 +1969,9 @@ const JobSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  timestamps: true,
+  toJSON: { getters: true }
 });
 
 // Calculate duration before saving
@@ -3405,6 +3473,8 @@ import { getOrganizations } from '../../services/organizationService';
 import { createJob, updateJob, getJob } from '../../services/jobService';
 import './JobForm.css';
 
+const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
+
 const JobForm = ({ isEditing = false }) => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -3504,16 +3574,18 @@ const JobForm = ({ isEditing = false }) => {
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
 
-      // Convert date and times to proper datetime format
+      // Convert date and times to proper datetime format in NZ timezone
       const combineDateTime = (date, time) => {
         const [hours, minutes] = time.split(':');
         const dateTime = new Date(date);
         dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+        // No need to adjust timezone here as the backend will handle it
         return dateTime.toISOString();
       };
 
       jobData.startTime = combineDateTime(formData.date, formData.startTime);
       jobData.endTime = combineDateTime(formData.date, formData.endTime);
+      jobData.date = new Date(formData.date).toISOString();
 
       // Submit the job data
       if (isEditing) {

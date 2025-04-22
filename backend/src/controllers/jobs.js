@@ -72,24 +72,39 @@ exports.getJob = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.createJob = asyncHandler(async (req, res, next) => {
+  // Add logging to help debug issues
+  console.log('Creating job with request data:', {
+    body: req.body,
+    user: req.user ? req.user.id : 'No user found'
+  });
+
+  if (!req.user) {
+    console.error('No user found in request');
+    return next(new ErrorResponse('Authentication required', 401));
+  }
+
   // Add user to req.body
   req.body.user = req.user.id;
   
   // Validate location exists and belongs to user
   const location = await Location.findById(req.body.location);
   if (!location) {
+    console.log('Location not found:', req.body.location);
     return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
   }
   if (location.user.toString() !== req.user.id) {
+    console.log('Location authorization failed. Location user:', location.user, 'Request user:', req.user.id);
     return next(new ErrorResponse(`User not authorized to use this location`, 401));
   }
 
   // Validate organization exists and belongs to user
   const organization = await Organization.findById(req.body.organization);
   if (!organization) {
+    console.log('Organization not found:', req.body.organization);
     return next(new ErrorResponse(`Organization not found with id of ${req.body.organization}`, 404));
   }
   if (organization.user.toString() !== req.user.id) {
+    console.log('Organization authorization failed. Organization user:', organization.user, 'Request user:', req.user.id);
     return next(new ErrorResponse(`User not authorized to use this organization`, 401));
   }
 
@@ -111,12 +126,24 @@ exports.createJob = asyncHandler(async (req, res, next) => {
     req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
   }
   
-  const job = await Job.create(req.body);
-  
-  res.status(201).json({
-    success: true,
-    data: job
-  });
+  try {
+    // Create the job
+    let job = await Job.create(req.body);
+    console.log('Job created successfully:', job);
+    
+    // Fetch the populated job data
+    job = await Job.findById(job._id)
+      .populate('location', 'name address')
+      .populate('organization', 'name');
+    
+    res.status(201).json({
+      success: true,
+      data: job
+    });
+  } catch (error) {
+    console.error('Error creating job:', error);
+    return next(new ErrorResponse(`Error creating job: ${error.message}`, 500));
+  }
 });
 
 /**

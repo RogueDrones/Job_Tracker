@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const JobSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: [true, 'Please add a job title'],
+    required: [true, 'Please add a title'],
     trim: true
   },
   description: {
@@ -13,43 +13,15 @@ const JobSchema = new mongoose.Schema({
   },
   date: {
     type: Date,
-    required: true,
-    get: function(date) {
-      // Convert UTC to NZ time for display
-      if (date) {
-        const nzOffset = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
-        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
-      }
-      return date;
-    },
-    default: function() {
-      // Set default date in NZ timezone
-      const now = new Date();
-      const nzOffset = 12;
-      return new Date(now.getTime() + (nzOffset * 60 * 60 * 1000));
-    }
+    required: [true, 'Please add a date']
   },
   startTime: {
     type: Date,
-    required: true,
-    get: function(date) {
-      if (date) {
-        const nzOffset = 12;
-        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
-      }
-      return date;
-    }
+    required: [true, 'Please add a start time']
   },
   endTime: {
     type: Date,
-    required: true,
-    get: function(date) {
-      if (date) {
-        const nzOffset = 12;
-        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
-      }
-      return date;
-    }
+    required: [true, 'Please add an end time']
   },
   duration: {
     type: Number,  // Duration in minutes
@@ -88,7 +60,8 @@ const JobSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
-  toJSON: { getters: true }
+  toJSON: { virtuals: true, getters: true },
+  toObject: { virtuals: true, getters: true }
 });
 
 // Calculate duration before saving
