@@ -12,7 +12,8 @@ const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
 
 const adjustToNZTimezone = (date) => {
   if (!date) return date;
-  return new Date(new Date(date).getTime() - (NZ_OFFSET * 60 * 60 * 1000));
+  // Convert from NZ time to UTC by adding the offset (since UTC is behind NZ)
+  return new Date(new Date(date).getTime() + (NZ_OFFSET * 60 * 60 * 1000));
 };
 
 /**

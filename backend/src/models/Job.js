@@ -17,11 +17,27 @@ const JobSchema = new mongoose.Schema({
   },
   startTime: {
     type: Date,
-    required: [true, 'Please add a start time']
+    required: [true, 'Please add a start time'],
+    get: function(date) {
+      // Convert UTC to NZ time for display
+      if (date) {
+        const nzOffset = 12;
+        return new Date(date.getTime() - (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    }
   },
   endTime: {
     type: Date,
-    required: [true, 'Please add an end time']
+    required: [true, 'Please add an end time'],
+    get: function(date) {
+      // Convert UTC to NZ time for display
+      if (date) {
+        const nzOffset = 12;
+        return new Date(date.getTime() - (nzOffset * 60 * 60 * 1000));
+      }
+      return date;
+    }
   },
   duration: {
     type: Number,  // Duration in minutes
