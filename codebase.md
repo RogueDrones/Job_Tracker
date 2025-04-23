@@ -297,7 +297,8 @@ mongoose.connect(process.env.MONGO_URI, {
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "test": "jest"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -314,8 +315,16 @@ mongoose.connect(process.env.MONGO_URI, {
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^9.1.6",
     "morgan": "^1.10.0",
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.4"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": ["./src/__tests__/setup.js"],
+    "testTimeout": 30000
   }
 }
 
@@ -336,9 +345,7 @@ const path = require('path');
 // Load env vars
 dotenv.config();
 
-// Connect to database
-connectDB();
-
+// Create Express app
 const app = express();
 
 // Body parser
@@ -361,17 +368,478 @@ app.use(require('./src/routes'));
 // Error handler middleware
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+// Only connect to database and start server if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+  // Connect to database
+  connectDB();
 
-const server = app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  const PORT = process.env.PORT || 5000;
+  const server = app.listen(PORT, () => {
+    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (err, promise) => {
+    console.log(`Error: ${err.message}`);
+    // Close server & exit process
+    server.close(() => process.exit(1));
+  });
+}
+
+module.exports = app;
+```
+
+# backend\src\__tests__\auth.test.js
+
+```js
+const request = require('supertest');
+const app = require('../../server');
+require('./setup');
+
+describe('Authentication Tests', () => {
+  const testUser = {
+    name: 'Test User',
+    email: 'register.test@example.com',
+    password: 'password123'
+  };
+
+  describe('POST /api/auth/register', () => {
+    it('should register a new user', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send(testUser);
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('success', true);
+      expect(res.body).toHaveProperty('token');
+    });
+
+    it('should not register user with existing email', async () => {
+      // First register a user
+      await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'First User',
+          email: 'duplicate.test@example.com',
+          password: 'password123'
+        });
+
+      // Try to register another user with same email
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'Second User',
+          email: 'duplicate.test@example.com',
+          password: 'password456'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+
+  describe('POST /api/auth/login', () => {
+    beforeEach(async () => {
+      // Register a user before each login test
+      await request(app)
+        .post('/api/auth/register')
+        .send({
+          name: 'Login Test User',
+          email: 'login.test@example.com',
+          password: 'password123'
+        });
+    });
+
+    it('should login with valid credentials', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'login.test@example.com',
+          password: 'password123'
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('success', true);
+      expect(res.body).toHaveProperty('token');
+    });
+
+    it('should not login with invalid password', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'login.test@example.com',
+          password: 'wrongpassword'
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('success', false);
+    });
+
+    it('should not login with non-existent email', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'nonexistent@example.com',
+          password: 'password123'
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+});
+```
+
+# backend\src\__tests__\jobs.test.js
+
+```js
+const request = require('supertest');
+const app = require('../../server');
+require('./setup');
+
+describe('Job Tests', () => {
+  let authToken;
+  let testLocation;
+  let testOrganization;
+
+  const testUser = {
+    name: 'Test User',
+    email: 'test.jobs@example.com',
+    password: 'password123'
+  };
+
+  const testLocationData = {
+    name: 'Test Location',
+    address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    zipCode: '12345',
+    coordinates: {
+      type: 'Point',
+      coordinates: [-74.0060, 40.7128]
+    }
+  };
+
+  const testOrganizationData = {
+    name: 'Test Organization',
+    contactName: 'John Doe',
+    phone: '123-456-7890',
+    email: 'org@example.com'
+  };
+
+  const testJob = {
+    title: 'Test Job',
+    description: 'Test job description',
+    date: new Date().toISOString(),
+    startTime: new Date('2025-01-01T09:00:00Z').toISOString(),
+    endTime: new Date('2025-01-01T17:00:00Z').toISOString()
+  };
+
+  // Setup before each test
+  beforeEach(async () => {
+    try {
+      // Register test user
+      const registerRes = await request(app)
+        .post('/api/auth/register')
+        .send(testUser);
+
+      if (!registerRes.body.token) {
+        throw new Error('Failed to get token after registration');
+      }
+
+      authToken = registerRes.body.token;
+
+      // Create test location
+      const locationRes = await request(app)
+        .post('/api/locations')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(testLocationData);
+
+      if (!locationRes.body.data) {
+        throw new Error('Failed to create test location');
+      }
+
+      testLocation = locationRes.body.data;
+
+      // Create test organization
+      const organizationRes = await request(app)
+        .post('/api/organizations')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(testOrganizationData);
+
+      if (!organizationRes.body.data) {
+        throw new Error('Failed to create test organization');
+      }
+
+      testOrganization = organizationRes.body.data;
+    } catch (error) {
+      console.error('Test setup failed:', error);
+      throw error;
+    }
+  });
+
+  describe('POST /api/jobs', () => {
+    it('should create a new job', async () => {
+      const res = await request(app)
+        .post('/api/jobs')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          ...testJob,
+          location: testLocation._id,
+          organization: testOrganization._id
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('success', true);
+      expect(res.body.data).toHaveProperty('title', testJob.title);
+      expect(res.body.data).toHaveProperty('location');
+      expect(res.body.data).toHaveProperty('organization');
+    });
+
+    it('should not create job without authentication', async () => {
+      const res = await request(app)
+        .post('/api/jobs')
+        .send(testJob);
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+
+  describe('GET /api/jobs', () => {
+    let testJobId;
+
+    beforeEach(async () => {
+      // Create a test job before each test
+      const jobRes = await request(app)
+        .post('/api/jobs')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          ...testJob,
+          location: testLocation._id,
+          organization: testOrganization._id
+        });
+
+      testJobId = jobRes.body.data._id;
+    });
+
+    it('should get all jobs for authenticated user', async () => {
+      const res = await request(app)
+        .get('/api/jobs')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('success', true);
+      expect(Array.isArray(res.body.data)).toBeTruthy();
+      expect(res.body.data.length).toBeGreaterThan(0);
+    });
+
+    it('should not get jobs without authentication', async () => {
+      const res = await request(app)
+        .get('/api/jobs');
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+
+  describe('GET /api/jobs/:id', () => {
+    let jobId;
+
+    beforeEach(async () => {
+      // Create a test job before each test
+      const jobRes = await request(app)
+        .post('/api/jobs')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          ...testJob,
+          location: testLocation._id,
+          organization: testOrganization._id
+        });
+      
+      jobId = jobRes.body.data._id;
+    });
+
+    it('should get a single job by ID', async () => {
+      const res = await request(app)
+        .get(`/api/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('success', true);
+      expect(res.body.data).toHaveProperty('_id', jobId);
+    });
+
+    it('should not get job with invalid ID', async () => {
+      const fakeId = '5f7d3a2b9d1c2b3a4c5d6e7f';
+      const res = await request(app)
+        .get(`/api/jobs/${fakeId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+
+  describe('PUT /api/jobs/:id', () => {
+    let jobId;
+
+    beforeEach(async () => {
+      // Create a test job before each test
+      const jobRes = await request(app)
+        .post('/api/jobs')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          ...testJob,
+          location: testLocation._id,
+          organization: testOrganization._id
+        });
+      
+      jobId = jobRes.body.data._id;
+    });
+
+    it('should update a job', async () => {
+      const updateData = {
+        title: 'Updated Test Job',
+        description: 'Updated test description'
+      };
+
+      const res = await request(app)
+        .put(`/api/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(updateData);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('success', true);
+      expect(res.body.data).toHaveProperty('title', updateData.title);
+    });
+
+    it('should not update job without authentication', async () => {
+      const res = await request(app)
+        .put(`/api/jobs/${jobId}`)
+        .send({ title: 'Should Not Update' });
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('success', false);
+    });
+
+    it('should not update non-existent job', async () => {
+      const fakeId = '5f7d3a2b9d1c2b3a4c5d6e7f';
+      const res = await request(app)
+        .put(`/api/jobs/${fakeId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ title: 'Should Not Update' });
+
+      expect(res.status).toBe(404);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+
+  describe('DELETE /api/jobs/:id', () => {
+    let jobId;
+
+    beforeEach(async () => {
+      // Create a test job before each test
+      const jobRes = await request(app)
+        .post('/api/jobs')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          ...testJob,
+          location: testLocation._id,
+          organization: testOrganization._id
+        });
+      
+      jobId = jobRes.body.data._id;
+    });
+
+    it('should delete a job', async () => {
+      const res = await request(app)
+        .delete(`/api/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('success', true);
+
+      // Verify job is deleted
+      const getRes = await request(app)
+        .get(`/api/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(getRes.status).toBe(404);
+    });
+
+    it('should not delete job without authentication', async () => {
+      const res = await request(app)
+        .delete(`/api/jobs/${jobId}`);
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty('success', false);
+    });
+
+    it('should not delete non-existent job', async () => {
+      const fakeId = '5f7d3a2b9d1c2b3a4c5d6e7f';
+      const res = await request(app)
+        .delete(`/api/jobs/${fakeId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toHaveProperty('success', false);
+    });
+  });
+});
+```
+
+# backend\src\__tests__\setup.js
+
+```js
+const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
+
+let mongod;
+
+// Connect to the database before running tests
+beforeAll(async () => {
+  try {
+    // Set test environment variables
+    process.env.JWT_SECRET = 'test-jwt-secret';
+    process.env.JWT_EXPIRE = '1h';
+    
+    // Create an in-memory MongoDB server
+    mongod = await MongoMemoryServer.create();
+    const uri = mongod.getUri();
+
+    // Set the MongoDB URI for testing
+    process.env.MONGO_URI = uri;
+
+    // Connect to the in-memory database
+    await mongoose.connect(uri);
+  } catch (error) {
+    console.error('Error setting up test database:', error);
+    throw error;
+  }
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
-  console.log(`Error: ${err.message}`);
-  // Close server & exit process
-  server.close(() => process.exit(1));
+// Clear database between tests
+beforeEach(async () => {
+  if (!mongoose.connection.db) {
+    throw new Error('Database not connected. Make sure beforeAll hook succeeded.');
+  }
+  const collections = mongoose.connection.collections;
+  for (const key in collections) {
+    await collections[key].deleteMany();
+  }
+});
+
+// Disconnect and stop MongoDB after all tests
+afterAll(async () => {
+  try {
+    await mongoose.connection.close();
+    if (mongod) {
+      await mongod.stop();
+    }
+  } catch (error) {
+    console.error('Error cleaning up test database:', error);
+    throw error;
+  }
 });
 ```
 
@@ -425,6 +893,8 @@ const jwt = require('jsonwebtoken');
 exports.register = asyncHandler(async (req, res, next) => {
   const { name, email, password } = req.body;
 
+  console.log('Registering user:', { name, email });
+
   // Create user
   const user = await User.create({
     name,
@@ -432,7 +902,8 @@ exports.register = asyncHandler(async (req, res, next) => {
     password
   });
 
-  sendTokenResponse(user, 200, res);
+  console.log('User created with ID:', user._id);
+  sendTokenResponse(user, 201, res);
 });
 
 /**
@@ -471,8 +942,15 @@ exports.login = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.getMe = asyncHandler(async (req, res, next) => {
+  console.log('Getting user profile. User ID from request:', req.user.id);
   const user = await User.findById(req.user.id);
 
+  if (!user) {
+    console.error('User not found with ID:', req.user.id);
+    return next(new ErrorResponse('User not found', 404));
+  }
+
+  console.log('User profile retrieved:', user._id);
   res.status(200).json({
     success: true,
     data: user
@@ -505,14 +983,24 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
  * Get token from model, create cookie and send response
  */
 const sendTokenResponse = (user, statusCode, res) => {
+  if (!process.env.JWT_SECRET) {
+    console.error('JWT_SECRET is not set!');
+    throw new Error('JWT_SECRET must be set');
+  }
+
   // Create token
   const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE
+    expiresIn: process.env.JWT_EXPIRE || '30d'  // Default to 30 days if not set
+  });
+
+  console.log('Generated token for user:', {
+    userId: user._id,
+    environment: process.env.NODE_ENV
   });
 
   const options = {
     expires: new Date(
-      Date.now() + process.env.JWT_COOKIE_EXPIRE * 24 * 60 * 60 * 1000
+      Date.now() + (process.env.JWT_COOKIE_EXPIRE || 30) * 24 * 60 * 60 * 1000
     ),
     httpOnly: true
   };
@@ -546,13 +1034,44 @@ const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
+const { processUploadedImage } = require('../utils/exifExtractor');
+const cloudinary = require('../config/cloudinary');
+const fs = require('fs');
+const sharp = require('sharp');
+const path = require('path');
+
+// Helper function to safely delete a file (handles Windows file locking issues)
+const safeDeleteFile = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      console.log(`Successfully deleted: ${filePath}`);
+      return true;
+    } catch (error) {
+      console.error(`Error deleting file ${filePath}:`, error.message);
+      // Schedule file for deletion after a delay (Windows workaround)
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`Delayed deletion successful: ${filePath}`);
+          }
+        } catch (delayedError) {
+          console.error(`Delayed deletion failed for ${filePath}:`, delayedError.message);
+        }
+      }, 1000);
+      return false;
+    }
+  }
+};
 
 // Set NZ timezone offset
 const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
 
 const adjustToNZTimezone = (date) => {
   if (!date) return date;
-  return new Date(new Date(date).getTime() - (NZ_OFFSET * 60 * 60 * 1000));
+  // Convert from NZ time to UTC by adding the offset (since UTC is behind NZ)
+  return new Date(new Date(date).getTime() + (NZ_OFFSET * 60 * 60 * 1000));
 };
 
 /**
@@ -612,24 +1131,39 @@ exports.getJob = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.createJob = asyncHandler(async (req, res, next) => {
+  // Add logging to help debug issues
+  console.log('Creating job with request data:', {
+    body: req.body,
+    user: req.user ? req.user.id : 'No user found'
+  });
+
+  if (!req.user) {
+    console.error('No user found in request');
+    return next(new ErrorResponse('Authentication required', 401));
+  }
+
   // Add user to req.body
   req.body.user = req.user.id;
   
   // Validate location exists and belongs to user
   const location = await Location.findById(req.body.location);
   if (!location) {
+    console.log('Location not found:', req.body.location);
     return next(new ErrorResponse(`Location not found with id of ${req.body.location}`, 404));
   }
   if (location.user.toString() !== req.user.id) {
+    console.log('Location authorization failed. Location user:', location.user, 'Request user:', req.user.id);
     return next(new ErrorResponse(`User not authorized to use this location`, 401));
   }
 
   // Validate organization exists and belongs to user
   const organization = await Organization.findById(req.body.organization);
   if (!organization) {
+    console.log('Organization not found:', req.body.organization);
     return next(new ErrorResponse(`Organization not found with id of ${req.body.organization}`, 404));
   }
   if (organization.user.toString() !== req.user.id) {
+    console.log('Organization authorization failed. Organization user:', organization.user, 'Request user:', req.user.id);
     return next(new ErrorResponse(`User not authorized to use this organization`, 401));
   }
 
@@ -651,12 +1185,24 @@ exports.createJob = asyncHandler(async (req, res, next) => {
     req.body.duration = Math.round((endTime - startTime) / (1000 * 60));
   }
   
-  const job = await Job.create(req.body);
-  
-  res.status(201).json({
-    success: true,
-    data: job
-  });
+  try {
+    // Create the job
+    let job = await Job.create(req.body);
+    console.log('Job created successfully:', job);
+    
+    // Fetch the populated job data
+    job = await Job.findById(job._id)
+      .populate('location', 'name address')
+      .populate('organization', 'name');
+    
+    res.status(201).json({
+      success: true,
+      data: job
+    });
+  } catch (error) {
+    console.error('Error creating job:', error);
+    return next(new ErrorResponse(`Error creating job: ${error.message}`, 500));
+  }
 });
 
 /**
@@ -1140,6 +1686,229 @@ exports.exportJobs = asyncHandler(async (req, res, next) => {
     console.error('Export error:', error);
     return next(new ErrorResponse('Error generating export', 500));
   }
+});
+
+/**
+ * @desc    Upload photo to job
+ * @route   POST /api/jobs/:id/photos
+ * @access  Private
+ */
+exports.uploadJobPhoto = asyncHandler(async (req, res, next) => {
+  // Variables to track files
+  let fileUploaded = false;
+  let cloudinaryResult = null;
+  let compressedFilePath = null;
+
+  try {
+    const job = await Job.findById(req.params.id);
+    
+    if (!job) {
+      if (req.file) {
+        safeDeleteFile(req.file.path);
+      }
+      return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+    }
+    
+    // Check user owns the job
+    if (job.user.toString() !== req.user.id) {
+      if (req.file) {
+        safeDeleteFile(req.file.path);
+      }
+      return next(new ErrorResponse(`User not authorized to update this job`, 401));
+    }
+    
+    if (!req.file) {
+      return next(new ErrorResponse(`Please upload a file`, 400));
+    }
+    
+    fileUploaded = true;
+    
+    // Extract EXIF data from image for timestamp
+    let exifData = null;
+    try {
+      exifData = processUploadedImage(req.file);
+      console.log('EXIF data extracted:', exifData);
+    } catch (exifError) {
+      console.error('Error extracting EXIF data:', exifError);
+      // Continue with upload even if EXIF extraction fails
+    }
+    
+    // Compress the image before uploading to Cloudinary
+    try {
+      const originalFilePath = req.file.path;
+      const fileExt = path.extname(originalFilePath);
+      compressedFilePath = `${originalFilePath.replace(fileExt, '')}-compressed${fileExt}`;
+      
+      console.log(`Compressing image from ${originalFilePath} to ${compressedFilePath}`);
+      
+      // First compression attempt - moderate quality
+      await sharp(originalFilePath)
+        .resize(1800, 1800, { fit: 'inside' })
+        .jpeg({ quality: 75 })
+        .toFile(compressedFilePath);
+      
+      // Check if file is still too large (>10MB)
+      const stats = fs.statSync(compressedFilePath);
+      console.log(`Compressed file size: ${stats.size} bytes (${Math.round(stats.size/1024/1024 * 100) / 100}MB)`);
+      
+      if (stats.size > 10 * 1024 * 1024) {
+        console.log('File still too large, applying more compression...');
+        
+        const moreCompressedPath = `${originalFilePath.replace(fileExt, '')}-compressed-more${fileExt}`;
+        
+        await sharp(originalFilePath)
+          .resize(1200, 1200, { fit: 'inside' })
+          .jpeg({ quality: 60 })
+          .toFile(moreCompressedPath);
+        
+        // Delete the previous compressed file
+        safeDeleteFile(compressedFilePath);
+        
+        // Use the more compressed file
+        compressedFilePath = moreCompressedPath;
+        
+        const newStats = fs.statSync(compressedFilePath);
+        console.log(`More compressed file size: ${newStats.size} bytes (${Math.round(newStats.size/1024/1024 * 100) / 100}MB)`);
+        
+        if (newStats.size > 10 * 1024 * 1024) {
+          console.log('Still too large, using extreme compression...');
+          
+          const extremeCompressedPath = `${originalFilePath.replace(fileExt, '')}-compressed-extreme${fileExt}`;
+          
+          await sharp(originalFilePath)
+            .resize(800, 800, { fit: 'inside' })
+            .jpeg({ quality: 40 })
+            .toFile(extremeCompressedPath);
+          
+          // Delete the previous compressed file
+          safeDeleteFile(compressedFilePath);
+          
+          // Use the extremely compressed file
+          compressedFilePath = extremeCompressedPath;
+          
+          const finalStats = fs.statSync(compressedFilePath);
+          console.log(`Extreme compressed file size: ${finalStats.size} bytes (${Math.round(finalStats.size/1024/1024 * 100) / 100}MB)`);
+        }
+      }
+    } catch (compressionError) {
+      console.error('Error compressing image:', compressionError);
+      // If compression fails, try to upload original file
+      compressedFilePath = req.file.path;
+    }
+    
+    // Upload to Cloudinary
+    try {
+      cloudinaryResult = await cloudinary.uploader.upload(compressedFilePath, {
+        folder: 'tfg-jobs'
+      });
+    } catch (cloudinaryError) {
+      console.error('Cloudinary upload error:', cloudinaryError);
+      
+      // Clean up files
+      if (req.file) {
+        safeDeleteFile(req.file.path);
+      }
+      
+      if (compressedFilePath && compressedFilePath !== req.file.path) {
+        safeDeleteFile(compressedFilePath);
+      }
+      
+      return next(new ErrorResponse(`Failed to upload image to cloud storage: ${cloudinaryError.message}`, 500));
+    }
+    
+    // Add photo to job
+    const photo = {
+      url: cloudinaryResult.secure_url,
+      caption: req.body.caption || '',
+      takenAt: exifData?.timestamp ? new Date(exifData.timestamp * 1000) : new Date()
+    };
+    
+    job.photos.push(photo);
+    await job.save();
+    
+    // Clean up files after everything is done
+    if (req.file) {
+      safeDeleteFile(req.file.path);
+    }
+    
+    if (compressedFilePath && compressedFilePath !== req.file.path) {
+      safeDeleteFile(compressedFilePath);
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: photo,
+      job: job
+    });
+  } catch (error) {
+    console.error('Upload error details:', error);
+    
+    // Clean up all files
+    if (req.file) {
+      safeDeleteFile(req.file.path);
+    }
+    
+    if (compressedFilePath && compressedFilePath !== req.file.path) {
+      safeDeleteFile(compressedFilePath);
+    }
+    
+    // If Cloudinary upload was successful but we had an error after that,
+    // try to remove the file from Cloudinary
+    if (cloudinaryResult) {
+      try {
+        await cloudinary.uploader.destroy(cloudinaryResult.public_id);
+      } catch (cloudError) {
+        console.error('Error removing file from Cloudinary:', cloudError);
+      }
+    }
+    
+    return next(new ErrorResponse(`Photo upload failed: ${error.message}`, 500));
+  }
+});
+
+/**
+ * @desc    Delete photo from job
+ * @route   DELETE /api/jobs/:id/photos/:photoId
+ * @access  Private
+ */
+exports.deleteJobPhoto = asyncHandler(async (req, res, next) => {
+  const job = await Job.findById(req.params.id);
+  
+  if (!job) {
+    return next(new ErrorResponse(`Job not found with id of ${req.params.id}`, 404));
+  }
+  
+  // Check user owns the job
+  if (job.user.toString() !== req.user.id) {
+    return next(new ErrorResponse(`User not authorized to update this job`, 401));
+  }
+  
+  // Find photo in the array
+  const photoIndex = job.photos.findIndex(photo => photo._id.toString() === req.params.photoId);
+  
+  if (photoIndex === -1) {
+    return next(new ErrorResponse(`Photo not found with id of ${req.params.photoId}`, 404));
+  }
+  
+  // Delete from Cloudinary
+  if (job.photos[photoIndex].url) {
+    try {
+      const publicId = job.photos[photoIndex].url.split('/').pop().split('.')[0];
+      await cloudinary.uploader.destroy(publicId);
+    } catch (error) {
+      console.error('Error deleting photo from Cloudinary:', error);
+      // Continue with removal from database even if Cloudinary delete fails
+    }
+  }
+  
+  // Remove from array
+  job.photos.splice(photoIndex, 1);
+  await job.save();
+  
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
 });
 ```
 
@@ -1762,10 +2531,17 @@ exports.protect = asyncHandler(async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    req.user = await User.findById(decoded.id);
+    // Find user and make sure they exist
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return next(new ErrorResponse('No user found with this id', 401));
+    }
 
+    // Set user on request object
+    req.user = user;
     next();
   } catch (err) {
+    console.error('Auth middleware error:', err);
     return next(new ErrorResponse('Not authorized to access this route', 401));
   }
 });
@@ -1887,7 +2663,7 @@ const mongoose = require('mongoose');
 const JobSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: [true, 'Please add a job title'],
+    required: [true, 'Please add a title'],
     trim: true
   },
   description: {
@@ -1896,40 +2672,28 @@ const JobSchema = new mongoose.Schema({
   },
   date: {
     type: Date,
-    required: true,
-    get: function(date) {
-      // Convert UTC to NZ time for display
-      if (date) {
-        const nzOffset = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
-        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
-      }
-      return date;
-    },
-    default: function() {
-      // Set default date in NZ timezone
-      const now = new Date();
-      const nzOffset = 12;
-      return new Date(now.getTime() + (nzOffset * 60 * 60 * 1000));
-    }
+    required: [true, 'Please add a date']
   },
   startTime: {
     type: Date,
-    required: true,
+    required: [true, 'Please add a start time'],
     get: function(date) {
+      // Convert UTC to NZ time for display
       if (date) {
         const nzOffset = 12;
-        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+        return new Date(date.getTime() - (nzOffset * 60 * 60 * 1000));
       }
       return date;
     }
   },
   endTime: {
     type: Date,
-    required: true,
+    required: [true, 'Please add an end time'],
     get: function(date) {
+      // Convert UTC to NZ time for display
       if (date) {
         const nzOffset = 12;
-        return new Date(date.getTime() + (nzOffset * 60 * 60 * 1000));
+        return new Date(date.getTime() - (nzOffset * 60 * 60 * 1000));
       }
       return date;
     }
@@ -1938,6 +2702,19 @@ const JobSchema = new mongoose.Schema({
     type: Number,  // Duration in minutes
     required: true
   },
+  photos: [{
+    url: {
+      type: String,
+      trim: true
+    },
+    caption: {
+      type: String,
+      trim: true
+    },
+    takenAt: {
+      type: Date
+    }
+  }],
   organization: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',
@@ -1971,7 +2748,8 @@ const JobSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
-  toJSON: { getters: true }
+  toJSON: { virtuals: true, getters: true },
+  toObject: { virtuals: true, getters: true }
 });
 
 // Calculate duration before saving
@@ -2224,12 +3002,15 @@ const {
   deleteJob,
   getJobsByLocation,
   getJobStatistics,
-  exportJobs // Add this new controller function
+  exportJobs,
+  uploadJobPhoto,
+  deleteJobPhoto
 } = require('../controllers/jobs');
+const { upload } = require('../middleware/fileUpload');
 
 // Important: Statistics and export routes must be defined BEFORE any routes with params
 router.get('/statistics', protect, getJobStatistics);
-router.get('/export', protect, exportJobs); // Add this new route
+router.get('/export', protect, exportJobs);
 
 // Get jobs by location
 router.get('/location/:locationId', protect, getJobsByLocation);
@@ -2243,6 +3024,10 @@ router.route('/:id')
   .get(protect, getJob)
   .put(protect, updateJob)
   .delete(protect, deleteJob);
+
+// Photo-related routes
+router.post('/:id/photos', protect, upload, uploadJobPhoto);
+router.delete('/:id/photos/:photoId', protect, deleteJobPhoto);
 
 module.exports = router;
 ```
@@ -2470,6 +3255,30 @@ This is a binary file of the type: Image
 This is a binary file of the type: Image
 
 # backend\uploads\79a11704bbf708eef8ff68fb006673a9-1743563063523.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\162e8f8498d717918d100420dae7759f-1744880066727.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\0309e805724d323a2fe69334f7fcdb9d-1744879831893.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\462d467976939432cb6958f8d904f0fe-1744880241239.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\572ac8969870742472515857a41a82f0-1745377508964.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\1546c0d3a4820889bf193955417a4f6f-1744880296390.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\c108f27c1add037a5a62eebde10a7fcf-1744879644842.jpg
 
 This is a binary file of the type: Image
 
@@ -2759,9 +3568,9 @@ import JobsList from './pages/jobs/JobsList';
 import JobDetails from './pages/jobs/JobDetails';
 import LocationsList from './pages/locations/LocationsList';
 import LocationDetails from './pages/locations/LocationDetails';
+import LocationForm from './components/locations/LocationForm';
 import OrganizationsList from './pages/organizations/OrganizationsList';
 import JobForm from './components/jobs/JobForm';
-import LocationForm from './components/locations/LocationForm';
 import OrganizationForm from './components/organizations/OrganizationForm';
 import Dashboard from './components/dashboard/Dashboard';
 import './App.css';
@@ -3460,6 +4269,74 @@ export default ExportDialog;
     font-size: 1rem;
     background-color: #f9f9f9;
   }
+
+.photo-management {
+  margin: 2rem 0;
+  padding: 1rem;
+  background: #f5f5f5;
+  border-radius: var(--border-radius);
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.photo-card {
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.photo {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.photo-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.delete-photo-btn {
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.delete-photo-btn:hover {
+  background: rgba(244, 67, 54, 0.9);
+}
+
+.upload-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #ddd;
+}
 ```
 
 # frontend\src\components\jobs\JobForm.jsx
@@ -3470,10 +4347,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { fetchLocations } from '../../services/locationService';
 import { getOrganizations } from '../../services/organizationService';
-import { createJob, updateJob, getJob } from '../../services/jobService';
+import { createJob, updateJob, getJob, uploadJobPhoto, deleteJobPhoto } from '../../services/jobService';
 import './JobForm.css';
-
-const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
 
 const JobForm = ({ isEditing = false }) => {
   const navigate = useNavigate();
@@ -3487,8 +4362,13 @@ const JobForm = ({ isEditing = false }) => {
     location: '',
     organization: '',
     tags: '',
-    notes: ''
+    notes: '',
+    photos: []
   });
+  
+  const [photo, setPhoto] = useState(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [locations, setLocations] = useState([]);
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -3528,7 +4408,6 @@ const JobForm = ({ isEditing = false }) => {
           const endTime = formatTime(jobData.endTime);
           
           // Handle location and organization IDs safely
-          // Check if location and organization are objects with _id or strings
           const locationId = jobData.location?._id || jobData.location || '';
           const organizationId = jobData.organization?._id || jobData.organization || '';
           
@@ -3541,7 +4420,8 @@ const JobForm = ({ isEditing = false }) => {
             location: locationId,
             organization: organizationId,
             tags: jobData.tags ? jobData.tags.join(', ') : '',
-            notes: jobData.notes || ''
+            notes: jobData.notes || '',
+            photos: jobData.photos || []
           });
         }
 
@@ -3561,6 +4441,66 @@ const JobForm = ({ isEditing = false }) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handlePhotoChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setPhoto(e.target.files[0]);
+    }
+  };
+
+  const handlePhotoUpload = async (e) => {
+    e.preventDefault();
+    
+    if (!photo) {
+      alert('Please select a photo to upload');
+      return;
+    }
+    
+    try {
+      setPhotoUploading(true);
+      
+      const formDataObj = new FormData();
+      formDataObj.append('photo', photo);
+      
+      if (photoCaption) {
+        formDataObj.append('caption', photoCaption);
+      }
+      
+      const updatedPhoto = await uploadJobPhoto(id, formDataObj);
+      
+      // Update form data with new photo
+      setFormData(prev => ({
+        ...prev,
+        photos: [...(prev.photos || []), updatedPhoto]
+      }));
+      
+      // Reset photo form
+      setPhoto(null);
+      setPhotoCaption('');
+      document.getElementById('photo-upload').value = '';
+      
+      setPhotoUploading(false);
+    } catch (err) {
+      setPhotoUploading(false);
+      console.error('Error uploading photo:', err);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId) => {
+    if (window.confirm('Are you sure you want to delete this photo?')) {
+      try {
+        await deleteJobPhoto(id, photoId);
+        
+        // Remove photo from state
+        setFormData(prev => ({
+          ...prev,
+          photos: prev.photos.filter(photo => photo._id !== photoId)
+        }));
+      } catch (err) {
+        console.error('Error deleting photo:', err);
+      }
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -3574,12 +4514,11 @@ const JobForm = ({ isEditing = false }) => {
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
 
-      // Convert date and times to proper datetime format in NZ timezone
+      // Convert date and times to proper datetime format
       const combineDateTime = (date, time) => {
         const [hours, minutes] = time.split(':');
         const dateTime = new Date(date);
         dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
-        // No need to adjust timezone here as the backend will handle it
         return dateTime.toISOString();
       };
 
@@ -3587,11 +4526,24 @@ const JobForm = ({ isEditing = false }) => {
       jobData.endTime = combineDateTime(formData.date, formData.endTime);
       jobData.date = new Date(formData.date).toISOString();
 
+      let savedJob;
       // Submit the job data
       if (isEditing) {
-        await updateJob(id, jobData);
+        savedJob = await updateJob(id, jobData);
       } else {
-        await createJob(jobData);
+        savedJob = await createJob(jobData);
+        
+        // If a photo was selected for a new job, upload it
+        if (photo) {
+          const formDataObj = new FormData();
+          formDataObj.append('photo', photo);
+          
+          if (photoCaption) {
+            formDataObj.append('caption', photoCaption);
+          }
+          
+          await uploadJobPhoto(savedJob._id, formDataObj);
+        }
       }
 
       // Redirect back to jobs list
@@ -3731,6 +4683,94 @@ const JobForm = ({ isEditing = false }) => {
             onChange={handleChange}
           />
         </div>
+        
+        {isEditing && (
+          <div className="photo-management">
+            <h3>Photos</h3>
+            {formData.photos && formData.photos.length > 0 ? (
+              <div className="photo-grid">
+                {formData.photos.map(photo => (
+                  <div key={photo._id} className="photo-card">
+                    <img src={photo.url} alt={photo.caption || 'Job'} className="photo" />
+                    
+                    {photo.caption && (
+                      <div className="photo-caption">{photo.caption}</div>
+                    )}
+                    
+                    <div className="photo-actions">
+                      <button 
+                        type="button"
+                        className="delete-photo-btn"
+                        onClick={() => handleDeletePhoto(photo._id)}
+                        title="Delete photo"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No photos available for this job.</p>
+            )}
+            
+            <div className="upload-section">
+              <h4>Upload New Photo</h4>
+              <div className="form-group">
+                <label htmlFor="photo-upload">Select Photo</label>
+                <input
+                  type="file"
+                  id="photo-upload"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                />
+                
+                <div className="form-group">
+                  <label htmlFor="photo-caption">Caption (optional)</label>
+                  <input
+                    type="text"
+                    id="photo-caption"
+                    value={photoCaption}
+                    onChange={(e) => setPhotoCaption(e.target.value)}
+                  />
+                </div>
+                
+                <button 
+                  type="button" 
+                  onClick={handlePhotoUpload}
+                  className="btn-secondary"
+                  disabled={photoUploading || !photo}
+                >
+                  {photoUploading ? 'Uploading...' : 'Upload Photo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {!isEditing && (
+          <div className="form-group">
+            <label htmlFor="photo">Upload Photo (optional)</label>
+            <input
+              type="file"
+              id="photo"
+              name="photo"
+              accept="image/*"
+              onChange={handlePhotoChange}
+            />
+            
+            <div className="form-group">
+              <label htmlFor="photoCaption">Photo Caption (optional)</label>
+              <input
+                type="text"
+                id="photoCaption"
+                name="photoCaption"
+                value={photoCaption}
+                onChange={(e) => setPhotoCaption(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
         
         <div className="form-actions">
           <button 
@@ -5032,7 +6072,7 @@ if (rootElement) {
 // # frontend/src/pages/jobs/JobDetails.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getJob, deleteJob } from '../../services/jobService';
+import { getJob, deleteJob, uploadJobPhoto, deleteJobPhoto } from '../../services/jobService';
 import LocationMap from '../../components/map/LocationMap';
 import { formatNZDate } from '../../utils/dateUtils';
 
@@ -5108,6 +6148,60 @@ const jobDetailsStyles = {
   },
   mapContainer: {
     marginTop: '2rem'
+  },
+  photosSection: {
+    marginBottom: '2rem'
+  },
+  photoGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+    gap: '1rem',
+    marginTop: '1rem'
+  },
+  photoCard: {
+    position: 'relative',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+  },
+  photo: {
+    width: '100%',
+    height: '200px',
+    objectFit: 'cover',
+    display: 'block'
+  },
+  photoCaption: {
+    position: 'absolute',
+    bottom: '0',
+    left: '0',
+    right: '0',
+    background: 'rgba(0, 0, 0, 0.7)',
+    color: 'white',
+    padding: '0.5rem',
+    fontSize: '0.9rem'
+  },
+  photoActions: {
+    position: 'absolute',
+    top: '0.5rem',
+    right: '0.5rem'
+  },
+  deletePhotoBtn: {
+    background: 'rgba(0, 0, 0, 0.7)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    width: '30px',
+    height: '30px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer'
+  },
+  uploadSection: {
+    marginTop: '1rem',
+    padding: '1rem',
+    background: '#f5f5f5',
+    borderRadius: '4px'
   }
 };
 
@@ -5117,7 +6211,10 @@ const JobDetails = () => {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+
   useEffect(() => {
     const loadJob = async () => {
       try {
@@ -5134,7 +6231,7 @@ const JobDetails = () => {
     
     loadJob();
   }, [id]);
-  
+
   const handleDelete = async () => {
     if (window.confirm('Are you sure you want to delete this job?')) {
       try {
@@ -5145,13 +6242,73 @@ const JobDetails = () => {
       }
     }
   };
-  
+
+  const handlePhotoFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setPhotoFile(e.target.files[0]);
+    }
+  };
+
+  const handlePhotoUpload = async (e) => {
+    e.preventDefault();
+    
+    if (!photoFile) {
+      alert('Please select a photo to upload');
+      return;
+    }
+    
+    try {
+      setPhotoUploading(true);
+      
+      const formData = new FormData();
+      formData.append('photo', photoFile);
+      
+      if (photoCaption) {
+        formData.append('caption', photoCaption);
+      }
+      
+      const updatedPhoto = await uploadJobPhoto(id, formData);
+      
+      // Update job state with new photo
+      setJob(prevJob => ({
+        ...prevJob,
+        photos: [...(prevJob.photos || []), updatedPhoto]
+      }));
+      
+      // Reset form
+      setPhotoFile(null);
+      setPhotoCaption('');
+      document.getElementById('photo-upload').value = '';
+      
+      setPhotoUploading(false);
+    } catch (err) {
+      setPhotoUploading(false);
+      console.error('Error uploading photo:', err);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId) => {
+    if (window.confirm('Are you sure you want to delete this photo?')) {
+      try {
+        await deleteJobPhoto(id, photoId);
+        
+        // Remove photo from state
+        setJob(prevJob => ({
+          ...prevJob,
+          photos: prevJob.photos.filter(photo => photo._id !== photoId)
+        }));
+      } catch (err) {
+        console.error('Error deleting photo:', err);
+      }
+    }
+  };
+
   const formatDuration = (minutes) => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
   };
-  
+
   if (loading) {
     return <div className="loading">Loading job details...</div>;
   }
@@ -5258,6 +6415,70 @@ const JobDetails = () => {
         </div>
       </div>
       
+      {/* Photos section */}
+      <div style={jobDetailsStyles.photosSection}>
+        <h2>Photos</h2>
+        
+        {job.photos && job.photos.length > 0 ? (
+          <div style={jobDetailsStyles.photoGrid}>
+            {job.photos.map(photo => (
+              <div key={photo._id} style={jobDetailsStyles.photoCard}>
+                <img src={photo.url} alt={photo.caption || 'Job'} style={jobDetailsStyles.photo} />
+                
+                {photo.caption && (
+                  <div style={jobDetailsStyles.photoCaption}>{photo.caption}</div>
+                )}
+                
+                <div style={jobDetailsStyles.photoActions}>
+                  <button 
+                    style={jobDetailsStyles.deletePhotoBtn}
+                    onClick={() => handleDeletePhoto(photo._id)}
+                    title="Delete photo"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={jobDetailsStyles.emptyMessage}>
+            No photos available for this job.
+          </div>
+        )}
+        
+        {/* Photo upload form */}
+        <div style={jobDetailsStyles.uploadSection}>
+          <h3>Upload New Photo</h3>
+          <form onSubmit={handlePhotoUpload}>
+            <div className="form-group">
+              <label htmlFor="photo-upload">Select Photo</label>
+              <input
+                type="file"
+                id="photo-upload"
+                accept="image/*"
+                onChange={handlePhotoFileChange}
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="photo-caption">Caption (optional)</label>
+              <input
+                type="text"
+                id="photo-caption"
+                value={photoCaption}
+                onChange={(e) => setPhotoCaption(e.target.value)}
+              />
+            </div>
+            
+            <button type="submit" className="btn-primary" disabled={photoUploading}>
+              {photoUploading ? 'Uploading...' : 'Upload Photo'}
+            </button>
+          </form>
+        </div>
+      </div>
+      
       {job.description && (
         <div style={jobDetailsStyles.card}>
           <h2>Description</h2>
@@ -5358,6 +6579,13 @@ const jobsListStyles = {
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
     display: 'flex',
     flexDirection: 'column'
+  },
+  jobPhoto: {
+    width: '100%',
+    height: '150px',
+    objectFit: 'cover',
+    borderRadius: '4px',
+    marginBottom: '1rem'
   },
   jobTitle: {
     fontSize: '1.2rem',
@@ -5565,6 +6793,14 @@ const JobsList = () => {
         <div style={jobsListStyles.jobsGrid}>
           {filteredJobs.map(job => (
             <div key={job._id} style={jobsListStyles.jobCard}>
+              {job.photos && job.photos.length > 0 && (
+                <img 
+                  src={job.photos[0].url} 
+                  alt={job.title}
+                  style={jobsListStyles.jobPhoto}
+                />
+              )}
+              
               <div style={jobsListStyles.jobTitle}>{job.title}</div>
               
               <div style={jobsListStyles.jobMeta}>
@@ -5912,7 +7148,7 @@ const LocationDetails = () => {
         <h1 style={locationDetailsStyles.title}>{location.name}</h1>
         
         <div style={locationDetailsStyles.actions}>
-          <Link to={`/locations/${id}/edit`} className="btn-secondary">
+          <Link to={`/locations/edit/${id}`} className="btn-secondary">
             Edit Location
           </Link>
           <button 
@@ -6288,7 +7524,7 @@ const LocationsList = () => {
                   View Details
                 </Link>
                 <div>
-                  <Link to={`/locations/${location._id}/edit`} className="btn-text" style={{ marginRight: '0.5rem' }}>
+                  <Link to={`/locations/edit/${location._id}`} className="btn-text" style={{ marginRight: '0.5rem' }}>
                     Edit
                   </Link>
                   <button 
@@ -7063,8 +8299,6 @@ export const fetchJobStatistics = async () => {
   }
 };
 
-// # frontend/src/services/jobService.js - Add this new function to the existing file
-
 /**
  * Export jobs data as Excel file
  * @param {Object} filters - Filter criteria
@@ -7120,6 +8354,43 @@ export const exportJobsData = async (filters = {}) => {
     return response.data;
   } catch (error) {
     toast.error('Failed to export data');
+    throw error;
+  }
+};
+
+/**
+ * Upload photo to job
+ * @param {string} id - Job ID
+ * @param {FormData} formData - Form data with photo and caption
+ * @returns {Promise<Object>} Updated job with new photo
+ */
+export const uploadJobPhoto = async (id, formData) => {
+  try {
+    const response = await api.post(`/jobs/${id}/photos`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    toast.success('Photo uploaded successfully');
+    return response.data.data;
+  } catch (error) {
+    toast.error('Failed to upload photo');
+    throw error;
+  }
+};
+
+/**
+ * Delete photo from job
+ * @param {string} jobId - Job ID
+ * @param {string} photoId - Photo ID
+ * @returns {Promise<void>}
+ */
+export const deleteJobPhoto = async (jobId, photoId) => {
+  try {
+    await api.delete(`/jobs/${jobId}/photos/${photoId}`);
+    toast.success('Photo deleted successfully');
+  } catch (error) {
+    toast.error('Failed to delete photo');
     throw error;
   }
 };

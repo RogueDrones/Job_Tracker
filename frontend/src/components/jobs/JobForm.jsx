@@ -51,8 +51,12 @@ const JobForm = ({ isEditing = false }) => {
           
           console.log("Job data received:", jobData);
           
-          // Format date and times for form inputs
-          const date = new Date(jobData.date).toISOString().split('T')[0];
+          // Format date for form in local timezone
+          const dt = new Date(jobData.date);
+          const year  = dt.getFullYear();
+          const month = String(dt.getMonth() + 1).padStart(2, '0');
+          const day   = String(dt.getDate()).padStart(2, '0');
+          const date  = `${year}-${month}-${day}`;
           
           // Format start and end times
           const formatTime = (timeStr) => {
