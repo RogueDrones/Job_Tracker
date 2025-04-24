@@ -1071,7 +1071,7 @@ const NZ_OFFSET = 12; // NZ is UTC+12 (approximate, doesn't account for DST)
 const adjustToNZTimezone = (date) => {
   if (!date) return date;
   // Convert from NZ time to UTC by adding the offset (since UTC is behind NZ)
-  return new Date(new Date(date).getTime() + (NZ_OFFSET * 60 * 60 * 1000));
+  return new Date(new Date(date).getTime() - (NZ_OFFSET * 60 * 60 * 1000));
 };
 
 /**
@@ -3246,6 +3246,26 @@ module.exports = {
 
 This is a binary file of the type: Image
 
+# backend\uploads\4df7b67b12791c55d60e89cb9831286b-1745378660052.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\5eea8baf7212a3051b640f1b544c01d9-1745476412830.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\7af148f95b8f04744486ea8ae58aebd9-1745378762052.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\9cf16c6304d29a8ec287ca75b6a987a0-1745378409094.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\46f624330ce3d522128990b970f6e854-1745476250031.jpg
+
+This is a binary file of the type: Image
+
 # backend\uploads\047b4ed0f9f35bbd9918a3a47fd464b4-1743635115567.jpg
 
 This is a binary file of the type: Image
@@ -3259,6 +3279,10 @@ This is a binary file of the type: Image
 This is a binary file of the type: Image
 
 # backend\uploads\162e8f8498d717918d100420dae7759f-1744880066727.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\166ec40bc85fd45df8f570883e55831c-1745378506405.jpg
 
 This is a binary file of the type: Image
 
@@ -3278,11 +3302,31 @@ This is a binary file of the type: Image
 
 This is a binary file of the type: Image
 
+# backend\uploads\9116fcfaa56637fb7a97297c03ade915-1745380013615.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\322879c2148b97c1c2a7f380bba332cc-1745378610639.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\738750854da424cc66f6ea0ed3298741-1745378109160.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\b7e3a79fe93956894de9ff044ff37ea6-1745378710422.jpg
+
+This is a binary file of the type: Image
+
 # backend\uploads\c108f27c1add037a5a62eebde10a7fcf-1744879644842.jpg
 
 This is a binary file of the type: Image
 
 # backend\uploads\e52785fb0ad79ff62191bed67b8f2b64-1743563138146.jpg
+
+This is a binary file of the type: Image
+
+# backend\uploads\eacf6388702b8aafddace8684e180a30-1745378579055.jpg
 
 This is a binary file of the type: Image
 
@@ -4395,8 +4439,12 @@ const JobForm = ({ isEditing = false }) => {
           
           console.log("Job data received:", jobData);
           
-          // Format date and times for form inputs
-          const date = new Date(jobData.date).toISOString().split('T')[0];
+          // Format date for form in local timezone
+          const dt = new Date(jobData.date);
+          const year  = dt.getFullYear();
+          const month = String(dt.getMonth() + 1).padStart(2, '0');
+          const day   = String(dt.getDate()).padStart(2, '0');
+          const date  = `${year}-${month}-${day}`;
           
           // Format start and end times
           const formatTime = (timeStr) => {

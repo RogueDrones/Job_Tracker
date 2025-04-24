@@ -78,15 +78,62 @@ exports.getLocation = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.createLocation = asyncHandler(async (req, res, next) => {
-  // Add user to req.body
-  req.body.user = req.user.id;
-  
-  const location = await Location.create(req.body);
-  
-  res.status(201).json({
-    success: true,
-    data: location
-  });
+  try {
+    // Add user to req.body
+    req.body.user = req.user.id;
+    
+    // Check if a similar location already exists for this user
+    const existingLocations = await Location.find({ user: req.user.id });
+    
+    // Check for duplicates by name
+    const duplicateByName = existingLocations.find(
+      loc => loc.name.toLowerCase() === req.body.name.toLowerCase()
+    );
+    
+    if (duplicateByName) {
+      return next(new ErrorResponse(
+        `A location with the name "${req.body.name}" already exists. Please use a different name.`, 
+        400
+      ));
+    }
+    
+    // Check for duplicates by coordinates (if provided)
+    if (req.body.coordinates && req.body.coordinates.coordinates) {
+      const [newLng, newLat] = req.body.coordinates.coordinates;
+      
+      // Find locations with very similar coordinates (within ~10 meters)
+      // 0.0001 degrees is roughly 10 meters
+      const nearbyLocation = existingLocations.find(loc => {
+        if (!loc.coordinates || !loc.coordinates.coordinates) return false;
+        
+        const [existingLng, existingLat] = loc.coordinates.coordinates;
+        const latDiff = Math.abs(existingLat - newLat);
+        const lngDiff = Math.abs(existingLng - newLng);
+        
+        // Return true if coordinates are very close
+        return latDiff < 0.0001 && lngDiff < 0.0001;
+      });
+      
+      if (nearbyLocation) {
+        return next(new ErrorResponse(
+          `A location "${nearbyLocation.name}" already exists at these coordinates. Please use a different location or edit the existing one.`, 
+          400
+        ));
+      }
+    }
+    
+    // Create location temporarily without enforcing photo requirement
+    // We'll handle photo enforcement in the frontend
+    const location = await Location.create(req.body);
+    
+    res.status(201).json({
+      success: true,
+      data: location
+    });
+  } catch (error) {
+    console.error('Error creating location:', error);
+    return next(new ErrorResponse(`Error creating location: ${error.message}`, 500));
+  }
 });
 
 /**
@@ -123,43 +170,57 @@ exports.updateLocation = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 exports.deleteLocation = asyncHandler(async (req, res, next) => {
-  const location = await Location.findById(req.params.id);
-  
-  if (!location) {
-    return next(new ErrorResponse(`Location not found with id of ${req.params.id}`, 404));
-  }
-  
-  // Check user owns the location
-  if (location.user.toString() !== req.user.id) {
-    return next(new ErrorResponse(`User not authorized to delete this location`, 401));
-  }
-  
-  // Delete all photos from Cloudinary
-  for (const photo of location.photos) {
-    if (photo.url) {
-      try {
-        // Extract public_id from Cloudinary URL
-        const publicId = photo.url.split('/').pop().split('.')[0];
-        await cloudinary.uploader.destroy(publicId);
-      } catch (err) {
-        console.error('Error deleting photo from Cloudinary:', err);
-        // Continue with other deletions even if one fails
+  try {
+    const location = await Location.findById(req.params.id);
+    
+    if (!location) {
+      return next(new ErrorResponse(`Location not found with id of ${req.params.id}`, 404));
+    }
+    
+    // Check user owns the location
+    if (location.user.toString() !== req.user.id) {
+      return next(new ErrorResponse(`User not authorized to delete this location`, 401));
+    }
+    
+    // Check if there are any jobs associated with this location
+    const Job = require('../models/Job');
+    const associatedJobs = await Job.countDocuments({ location: req.params.id });
+    
+    if (associatedJobs > 0) {
+      return next(
+        new ErrorResponse(
+          `Cannot delete location with ID ${req.params.id} because it has ${associatedJobs} associated jobs. Please reassign or delete these jobs first.`,
+          400
+        )
+      );
+    }
+    
+    // Delete all photos from Cloudinary
+    for (const photo of location.photos) {
+      if (photo.url) {
+        try {
+          // Extract public_id from Cloudinary URL
+          const publicId = photo.url.split('/').pop().split('.')[0];
+          await cloudinary.uploader.destroy(publicId);
+        } catch (err) {
+          console.error('Error deleting photo from Cloudinary:', err);
+          // Continue with other deletions even if one fails
+        }
       }
     }
+    
+    // Using findByIdAndDelete instead of remove()
+    await Location.findByIdAndDelete(req.params.id);
+    
+    res.status(200).json({
+      success: true,
+      data: {}
+    });
+  } catch (error) {
+    console.error('Error deleting location:', error);
+    return next(new ErrorResponse(`Error deleting location: ${error.message}`, 500));
   }
-  
-  // Using findByIdAndDelete instead of remove()
-  await Location.findByIdAndDelete(req.params.id);
-  
-  res.status(200).json({
-    success: true,
-    data: {}
-  });
 });
-
-// # backend/src/controllers/locations.js - uploadLocationPhoto function
-
-// # backend/src/controllers/locations.js - uploadLocationPhoto function
 
 /**
  * @desc    Upload photo to location

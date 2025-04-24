@@ -1,6 +1,7 @@
 // # frontend/src/pages/locations/LocationsList.jsx
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { fetchLocations, deleteLocation } from '../../services/locationService';
 import LocationMap from '../../components/map/LocationMap';
 
@@ -132,13 +133,22 @@ const LocationsList = () => {
   }, []);
   
   const handleDeleteLocation = async (id) => {
-    if (window.confirm('Are you sure you want to delete this location? All associated job data will remain but will no longer be linked to this location.')) {
+    if (window.confirm('Are you sure you want to delete this location?')) {
       try {
         await deleteLocation(id);
-        // Remove location from state
+        // Remove location from state on success
         setLocations(locations.filter(location => location._id !== id));
       } catch (err) {
         console.error('Error deleting location:', err);
+        // The toast error will be shown by the service function
+        
+        // If the error contains information about associated jobs, show a more helpful message
+        if (err.response?.data?.error && err.response.data.error.includes('associated jobs')) {
+          toast.error(
+            'This location has associated jobs. Please edit those jobs to use a different location first.',
+            { autoClose: 8000 } // Keep message visible longer
+          );
+        }
       }
     }
   };

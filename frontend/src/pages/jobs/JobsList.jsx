@@ -293,7 +293,7 @@ const JobsList = () => {
                   <strong>Date:</strong> {formatNZDate(job.date)}
                 </div>
                 <div>
-                  <strong>Location:</strong> {job.location.name}
+                  <strong>Location:</strong> {job.location ? job.location.name : 'Unknown location'}
                 </div>
                 <div>
                   <strong>Duration:</strong> {formatDuration(job.duration)}

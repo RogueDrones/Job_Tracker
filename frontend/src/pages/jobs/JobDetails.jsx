@@ -327,20 +327,33 @@ const JobDetails = () => {
           <div style={jobDetailsStyles.infoItem}>
             <div style={jobDetailsStyles.infoLabel}>Location</div>
             <div style={jobDetailsStyles.infoValue}>
-              {job.location.name}
+              {job.location ? job.location.name : 'Unknown location'}
             </div>
-            {job.location.address && (
+            {job.location && job.location.address && (
               <div style={{ fontSize: '0.9rem' }}>
                 {job.location.address}
               </div>
             )}
           </div>
           
-          <div>
-            <Link to={`/locations/${job.location._id}`} className="btn-text">
-              View Location Details
-            </Link>
-          </div>
+          {job.location ? (
+            <div>
+              <Link to={`/locations/${job.location._id}`} className="btn-text">
+                View Location Details
+              </Link>
+            </div>
+          ) : (
+            <div style={{ color: '#f44336', fontSize: '0.9rem' }}>
+              The location for this job has been deleted
+            </div>
+            )}
+
+            {job.location && job.location.coordinates && (
+              <div style={jobDetailsStyles.mapContainer}>
+                <h2>Location Map</h2>
+                <LocationMap singleLocation={job.location} />
+              </div>
+            )}
         </div>
       </div>
       

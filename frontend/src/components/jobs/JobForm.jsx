@@ -163,17 +163,40 @@ const JobForm = ({ isEditing = false }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
+  
     try {
       setLoading(true);
       setError(null);
-
+  
+      // Validate required fields
+      if (!formData.location) {
+        setError('Please select a location');
+        setLoading(false);
+        return;
+      }
+  
+      if (!formData.organization) {
+        setError('Please select an organization');
+        setLoading(false);
+        return;
+      }
+  
+      // Validate time - make sure end time is after start time
+      const startDateTime = new Date(`${formData.date}T${formData.startTime}`);
+      const endDateTime = new Date(`${formData.date}T${formData.endTime}`);
+      
+      if (endDateTime <= startDateTime) {
+        setError('End time must be after start time');
+        setLoading(false);
+        return;
+      }
+  
       // Create a copy of the form data for submission
       const jobData = {
         ...formData,
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
       };
-
+  
       // Convert date and times to proper datetime format
       const combineDateTime = (date, time) => {
         const [hours, minutes] = time.split(':');
@@ -181,11 +204,11 @@ const JobForm = ({ isEditing = false }) => {
         dateTime.setHours(parseInt(hours, 10), parseInt(minutes, 10));
         return dateTime.toISOString();
       };
-
+  
       jobData.startTime = combineDateTime(formData.date, formData.startTime);
       jobData.endTime = combineDateTime(formData.date, formData.endTime);
       jobData.date = new Date(formData.date).toISOString();
-
+  
       let savedJob;
       // Submit the job data
       if (isEditing) {
@@ -205,12 +228,27 @@ const JobForm = ({ isEditing = false }) => {
           await uploadJobPhoto(savedJob._id, formDataObj);
         }
       }
-
+  
       // Redirect back to jobs list
       navigate('/jobs');
     } catch (err) {
       console.error('Error saving job:', err);
-      setError('Failed to save job. Please check your inputs and try again.');
+      
+      // Enhanced error handling
+      if (err.response?.data?.error) {
+        // Show the specific error from the server
+        setError(`Server error: ${err.response.data.error}`);
+      } else if (err.message && err.message.includes('location')) {
+        // Handle location-specific errors
+        setError('The selected location may no longer exist. Please choose a different location.');
+      } else if (err.message && err.message.includes('organization')) {
+        // Handle organization-specific errors
+        setError('The selected organization may no longer exist. Please choose a different organization.');
+      } else {
+        // Generic error message
+        setError('Failed to save job. Please check your inputs and try again.');
+      }
+      
       setLoading(false);
     }
   };
